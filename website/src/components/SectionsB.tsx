@@ -1,10 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useId, useState } from 'react';
-import { REPO, WIN_EXE, type OS } from '../site';
+import { REPO, type OS } from '../site';
 import { DownloadButtons } from './Hero';
 import { AppleGlyph, IconCheck, IconChevron, IconCopy, IconMic, WindowsGlyph } from './Icons';
 import { MurmurApp, Pill } from './Mock';
 import { MurmurIcon } from './MurmurIcon';
+import { useInstaller } from '../useInstaller';
 import { Segmented } from './SectionsA';
 
 /* ---------- 6. Your AI (black) ---------- */
@@ -162,6 +163,7 @@ export function Install({ os: detected }: { os: OS }) {
   const [os, setOs] = useState<OS>(detected);
   const { copied, copy } = useCopy();
   const mac = os === 'mac';
+  const exe = useInstaller();
   return (
     <section className="sec sec--white install" id="install">
       <div className="wrap install-inner">
@@ -197,7 +199,7 @@ export function Install({ os: detected }: { os: OS }) {
               <dl className="install-facts">
                 <div><dt>You need</dt><dd>{mac ? 'Rust, Node.js and the Xcode command-line tools' : 'Rust, Node.js, VS C++ build tools, CMake, LLVM, WebView2'}</dd></div>
                 <div><dt>Allow</dt><dd>{mac ? 'Microphone, and Accessibility so it can paste' : 'Microphone, under Settings › Privacy'}</dd></div>
-                <div><dt>Then</dt><dd>{mac ? <>Hold <b>⌥ Space</b> and talk</> : <>Hold <b>Ctrl + Shift + Space</b> and talk. Or skip building: <a className="link" href={WIN_EXE}>get the installer, 3.6 MB ›</a></>}</dd></div>
+                <div><dt>Then</dt><dd>{mac ? <>Hold <b>⌥ Space</b> and talk</> : <>Hold <b>Ctrl + Shift + Space</b> and talk. Or skip building: <a className="link" href={exe.url}>get the {exe.tag} installer, {exe.size} ›</a></>}</dd></div>
               </dl>
             </motion.div>
           </AnimatePresence>

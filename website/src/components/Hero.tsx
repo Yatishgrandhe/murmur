@@ -1,7 +1,8 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import { useLive } from '../hooks';
-import { WIN_EXE, shortcutText, type OS } from '../site';
+import { shortcutText, type OS } from '../site';
+import { useInstaller } from '../useInstaller';
 import { AppleGlyph, WindowsGlyph } from './Icons';
 import { MacWindow, Pill, type PillState } from './Mock';
 
@@ -49,6 +50,7 @@ function useHeroLoop(active: boolean) {
 }
 
 export function DownloadButtons({ os, tone = 'dark', size = 'lg' }: { os: OS; tone?: 'dark' | 'light'; size?: 'lg' | 'md' }) {
+  const exe = useInstaller();
   const cls = (mine: boolean) => `btn btn--${size} ${mine ? 'btn--primary' : `btn--secondary btn--on-${tone}`}`;
   const mac = (
     <a key="mac" href="#install" className={cls(os === 'mac')}>
@@ -56,7 +58,7 @@ export function DownloadButtons({ os, tone = 'dark', size = 'lg' }: { os: OS; to
     </a>
   );
   const win = (
-    <a key="win" href={WIN_EXE} className={cls(os === 'windows')}>
+    <a key="win" href={exe.url} className={cls(os === 'windows')}>
       <WindowsGlyph size={16} /> Get it for Windows
     </a>
   );

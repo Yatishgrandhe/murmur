@@ -1,7 +1,9 @@
-import { WIN_EXE, type OS } from '../site';
+import { type OS } from '../site';
 import { MurmurIcon } from './MurmurIcon';
+import { useInstaller } from '../useInstaller';
 
 export function Nav({ os }: { os: OS }) {
+  const exe = useInstaller();
   return (
     <header className="nav">
       <div className="nav-inner">
@@ -16,7 +18,7 @@ export function Nav({ os }: { os: OS }) {
           <a href="#privacy">Privacy</a>
           <a href="#install">Install</a>
         </nav>
-        <a className="btn btn--sm btn--primary" href={os === 'windows' ? WIN_EXE : '#install'}>Download</a>
+        <a className="btn btn--sm btn--primary" href={os === 'windows' ? exe.url : '#install'}>Download</a>
       </div>
     </header>
   );
