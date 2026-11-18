@@ -34,6 +34,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          key: vs2022
       - name: LLVM for bindgen
         if: runner.os == 'Windows'
         shell: pwsh

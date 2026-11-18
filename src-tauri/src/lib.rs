@@ -300,7 +300,7 @@ fn deliver(app: &AppHandle, c: &Arc<Core>, s: &Settings, raw: String, pending: R
             }
             None => {
                 emit_phase(app, "rewriting", Some(raw.clone()), Some(if s.style == "prompt" { format!("prompt:{}", llm::provider_label(&s.provider)) } else { llm::provider_label(&s.provider).into() }), false);
-                p.finish(&raw).unwrap_or_else(|e| {
+                p.finish(&raw).map(|t| llm::scrub(&t, &raw)).unwrap_or_else(|e| {
                     warning = Some(e);
                     used = "off".into();
                     raw.clone()
