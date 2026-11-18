@@ -13,7 +13,11 @@ fn link_clang_runtime() {
     let out = std::process::Command::new("xcrun")
         .args(["clang", "--print-resource-dir"])
         .output()
-        .or_else(|_| std::process::Command::new("clang").arg("--print-resource-dir").output());
+        .or_else(|_| {
+            std::process::Command::new("clang")
+                .arg("--print-resource-dir")
+                .output()
+        });
     let Ok(out) = out else { return };
     let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let lib = std::path::Path::new(&dir).join("lib/darwin/libclang_rt.osx.a");
