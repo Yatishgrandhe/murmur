@@ -220,7 +220,7 @@ impl Pending {
                 let bin = cli::find("codex").ok_or("Codex (ChatGPT) isn't installed. Open Murmur › AI to set it up.")?;
                 let out = tmp_file("codex");
                 let mut c = cli::command(&bin);
-                c.args(["exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", "--color", "never"])
+                c.args(["exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", "--color", "never", "--json"])
                     .args(["-c", "model_reasoning_effort=low"])
                     .arg("-o")
                     .arg(&out);
@@ -290,15 +290,16 @@ impl Pending {
                 };
                 let status = loop {
                     while let Ok(line) = stdout.try_recv() {
-                        // Claude Code prints the answer, then spends ~1.3 s on a post-turn summary
-                        // before exiting. Take the answer as soon as it arrives.
-                        if codex_out.is_none() {
+                        // Both CLIs print the answer well before they exit (Claude Code spends ~1.3 s on a
+                        // post-turn summary, Codex ~0.4 s). Take the answer as soon as it arrives.
+                        {
                             if let Some(answer) = early_answer(&line) {
                                 let _ = child.kill();
                                 std::thread::spawn(move || {
                                     let _ = child.wait();
                                 });
                                 cleanup(&prompt_file);
+                                cleanup(&codex_out);
                                 return Ok(tidy_output(&answer));
                             }
                         }
@@ -352,6 +353,10 @@ impl Pending {
 /// "Not logged in" style messages, which are handled via the final result line).
 pub fn early_answer(line: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    // Codex `exec --json`
+    if v["type"] == "item.completed" && v["item"]["type"] == "agent_message" {
+        return v["item"]["text"].as_str().filter(|t| !t.trim().is_empty()).map(String::from);
+    }
     if v["type"] != "assistant" || v["message"]["model"] == "<synthetic>" || v["message"]["stop_reason"] == "tool_use" {
         return None;
     }
@@ -494,6 +499,8 @@ mod tests {
         let syn = r#"{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"Not logged in"}]}}"#;
         assert_eq!(early_answer(syn), None);
         assert_eq!(early_answer(r#"{"type":"result","result":"x"}"#), None);
+        let codex = r#"{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"See you at noon."}}"#;
+        assert_eq!(early_answer(codex).as_deref(), Some("See you at noon."));
     }
 
     #[test]

@@ -80,7 +80,20 @@ what you said.
 | 1.6 s, question (must not be answered) | 0.16 s | **0.67 s** |
 | Prompt-injection attempt | 0.18 s | 0.75 s, typed verbatim ✓ |
 
-Reproduce with `cargo run --release --example e2e -- clip.wav claude clean` (the WAV can come from macOS `say`).
+Speed depends on the AI service: Claude Haiku usually answers in about 0.9 s, with occasional slow ones around 3 s.
+ChatGPT plans can only use Codex's full model, so they take about 3–4.5 s.
+
+Reproduce with `cargo run --release --example e2e -- clip.wav claude clean` (the WAV can come from macOS `say`), or
+test the whole app, windows included, with a recorded clip standing in for the mic:
+
+```bash
+MURMUR_SELFTEST=clip.wav MURMUR_REPORT=report.jsonl MURMUR_SELFTEST_PROVIDER=claude \
+  Murmur.app/Contents/MacOS/murmur
+```
+
+The report lists what each window rendered (pill size, how many wave pixels were lit, the text shown), where the
+windows sit on screen, each pipeline stage with its time, and the final text. Nothing is pasted unless
+`MURMUR_SELFTEST_PASTE=1` is set.
 
 ## Build from source
 

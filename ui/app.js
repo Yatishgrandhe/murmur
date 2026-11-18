@@ -145,7 +145,7 @@ function cliDetail(id) {
   if (s.logged_in) {
     const models = id === 'claude'
       ? `<div class="sub-seg"><span class="muted">Model</span><div class="seg" id="cmodel">${['haiku', 'sonnet'].map(m => `<button data-v="${m}" class="${st.settings.claude_model === m ? 'on' : ''}">${m === 'haiku' ? 'Haiku · fastest' : 'Sonnet · smartest'}</button>`).join('')}</div></div>`
-      : `<div class="keyrow"><input class="field" id="cxmodel" placeholder="Model (leave empty for your Codex default)" value="${esc(st.settings.codex_model)}"></div>`;
+      : `<p class="muted" style="margin:12px 0 0">ChatGPT plans run Codex's full model, so rewrites take about 3 seconds. Claude Haiku takes about 1.</p><div class="keyrow"><input class="field" id="cxmodel" placeholder="Model (leave empty for your Codex default)" value="${esc(st.settings.codex_model)}"></div>`;
     return `<div class="pd"><div class="logo prov-logo" style="background:${p.color};width:40px;height:40px;border-radius:11px;display:grid;place-items:center">${ICON[p.icon]}</div>
       <div class="grow"><b>Connected to ${p.name}</b><p>${esc(s.detail)}${s.account ? ' · ' + esc(s.account) : ''}. Rewrites count toward your plan's normal usage.</p></div>
       <span class="badge ok">Ready</span></div>${models}`;
@@ -433,5 +433,14 @@ function renderAll() {
   renderAll();
   waves($('#heroWave'), () => heroEnergy, .27);
   if (!st.settings.onboarded) { $('#onboard').classList.remove('hidden'); waves($('#obWave'), () => .6); renderOb(); }
-  refreshProviders().then(() => renderOb());
+  await refreshProviders(); renderOb();
+  const r = $('.app').getBoundingClientRect();
+  invoke('ui_report', { page: 'main', data: {
+    onboardingVisible: !$('#onboard').classList.contains('hidden'), onboardingTitle: $('#obBody h1')?.textContent,
+    providerCards: $$('#providers .prov').length, modelCards: $$('#models .model').length, navItems: $$('#nav a').length,
+    status: $('#statusText').innerText, layout: [Math.round(r.width), Math.round(r.height)], vibrancy: st.vibrancy,
+    dark: matchMedia('(prefers-color-scheme: dark)').matches, claude: ps?.claude?.detail, codex: ps?.codex?.detail, accessibility: ps?.accessibility,
+  } }).catch(() => {});
 })();
+window.addEventListener('error', e => invoke('ui_report', { page: 'main', data: { error: String(e.message) } }).catch(() => {}));
+if (T) T.event.listen('phase', e => invoke('ui_report', { page: 'main', data: { phaseSeen: e.payload.phase, status: $('#statusText').innerText } }).catch(() => {}));

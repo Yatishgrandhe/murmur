@@ -272,8 +272,22 @@ requestAnimationFrame(frame);
 
 // ── wiring ──
 const T = window.__TAURI__;
+const report = data => { try { T?.core.invoke('ui_report', { page: 'overlay', data }); } catch {} };
+window.addEventListener('error', e => report({ error: String(e.message) }));
+function inspect(phase) {
+  // what the user would actually see: pill geometry + how much of the wave canvas is lit
+  const r = pill.getBoundingClientRect(), cs = getComputedStyle(pill);
+  let lit = 0;
+  try {
+    const px = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let i = 3; i < px.length; i += 4) if (px[i] > 24) lit++;
+    lit = +(lit / (px.length / 4)).toFixed(3);
+  } catch {}
+  report({ phase, pillWidth: Math.round(r.width), pillHeight: Math.round(r.height), opacity: +cs.opacity, waveCoverage: lit,
+    canvasOpacity: +getComputedStyle(canvas).opacity, text: row.innerText.trim().slice(0, 80), level: +level.toFixed(2), bodyBg: getComputedStyle(document.body).backgroundColor });
+}
 if (T) {
-  T.event.listen('phase', e => render(e.payload));
+  T.event.listen('phase', e => { render(e.payload); setTimeout(() => inspect(e.payload.phase), 700); });
   T.event.listen('level', e => { target = e.payload; });
 } else {
   // browser preview: simulate a session

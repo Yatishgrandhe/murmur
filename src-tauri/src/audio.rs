@@ -110,12 +110,53 @@ fn push(mono: impl Iterator<Item = f32>, buf: &Mutex<Vec<f32>>, level: &AtomicU3
     if chunk.is_empty() {
         return;
     }
-    let rms = (chunk.iter().map(|s| s * s).sum::<f32>() / chunk.len() as f32).sqrt();
-    // perceptual-ish mapping: speech RMS ~0.01–0.2 → 0..1
-    let v = ((rms.max(1e-5).log10() + 2.6) / 2.0).clamp(0.0, 1.0);
+    let v = loudness(chunk);
     let prev = f32::from_bits(level.load(Ordering::Relaxed));
     let smoothed = if v > prev { v } else { prev * 0.82 + v * 0.18 };
     level.store(smoothed.to_bits(), Ordering::Relaxed);
+}
+
+/// Perceptual-ish loudness: speech RMS ~0.01–0.2 → 0..1.
+fn loudness(chunk: &[f32]) -> f32 {
+    let rms = (chunk.iter().map(|s| s * s).sum::<f32>() / chunk.len().max(1) as f32).sqrt();
+    ((rms.max(1e-5).log10() + 2.6) / 2.0).clamp(0.0, 1.0)
+}
+
+impl Recording {
+    /// Self-test source: plays back recorded samples in real time instead of the microphone,
+    /// driving the same level meter, so the whole app can be exercised without a person talking.
+    pub fn replay(samples: Vec<f32>, rate: u32, on_level: impl Fn(f32) + Send + 'static) -> Recording {
+        let stop = Arc::new(AtomicBool::new(false));
+        let s2 = stop.clone();
+        let handle = std::thread::spawn(move || {
+            let chunk = (rate / 30).max(1) as usize;
+            let mut level = 0.0f32;
+            let mut chunks = samples.chunks(chunk);
+            while !s2.load(Ordering::SeqCst) {
+                let v = chunks.next().map(loudness).unwrap_or(0.0);
+                level = if v > level { v } else { level * 0.82 + v * 0.18 };
+                on_level(level);
+                std::thread::sleep(Duration::from_millis(33));
+            }
+            Ok((samples, rate))
+        });
+        Recording { stop, handle: Some(handle) }
+    }
+}
+
+/// Reads a WAV file as mono f32 (used by the self-test).
+pub fn read_wav(path: &str) -> Result<(Vec<f32>, u32), String> {
+    let mut r = hound::WavReader::open(path).map_err(|e| e.to_string())?;
+    let spec = r.spec();
+    let raw: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => r.samples::<f32>().map_while(Result::ok).collect(),
+        hound::SampleFormat::Int => {
+            let scale = (1i64 << (spec.bits_per_sample - 1)) as f32;
+            r.samples::<i32>().map_while(Result::ok).map(|x| x as f32 / scale).collect()
+        }
+    };
+    let mono = raw.chunks(spec.channels as usize).map(|c| c.iter().sum::<f32>() / c.len() as f32).collect();
+    Ok((mono, spec.sample_rate))
 }
 
 /// Resample mono audio to 16 kHz. Integer ratios use box-filter decimation;
