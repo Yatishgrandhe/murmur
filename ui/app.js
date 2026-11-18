@@ -14,7 +14,7 @@ const mock = (() => {
     { ts: now - 9e7, raw: 'ok sounds good', text: 'Ok, sounds good', provider: 'off', seconds: 1.1, ms: 310 },
   ];
   return {
-    get_state: () => ({ settings: s, history, platform: 'macos', vibrancy: false, defaultShortcut: 'Alt+Space', launchAtLogin: false, version: '0.1.0',
+    get_state: () => ({ settings: s, history, platform: 'macos', vibrancy: false, defaultShortcut: 'Alt+Space', launchAtLogin: false, version: '0.2.0',
       models: [
         { id: 'tiny.en', label: 'Swift', blurb: 'Fastest · English', size_mb: 75, english_only: true, installed: false },
         { id: 'base.en', label: 'Balanced', blurb: 'Recommended · English', size_mb: 142, english_only: true, installed: true },
