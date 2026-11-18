@@ -307,3 +307,28 @@ select.field { appearance: none; -webkit-appearance: none; background-image: lin
 .ob-big-keys kbd { height: 48px; min-width: 48px; font-size: 19px; border-radius: 11px; background: rgba(255,255,255,.1); color: #fff; box-shadow: 0 0 0 .5px rgba(255,255,255,.25), 0 2px 0 rgba(255,255,255,.12); padding: 0 14px; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+/* opening animation */
+.splash { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  background: radial-gradient(120% 100% at 50% 0%, #241f38 0%, #0e0e13 70%); transition: opacity .6s var(--ease), filter .6s var(--ease); }
+.splash.out { opacity: 0; filter: blur(8px); pointer-events: none; }
+.splash.out .splash-logo { transform: scale(1.18); }
+.splash-glow { position: absolute; width: 320px; height: 320px; border-radius: 50%; background: radial-gradient(circle, rgba(150,110,255,.45), rgba(80,220,255,.12) 45%, transparent 70%);
+  filter: blur(20px); animation: glow 2.4s ease-in-out infinite; }
+@keyframes glow { 50% { transform: scale(1.12); opacity: .75; } }
+.splash-logo { position: relative; width: 112px; height: 112px; filter: drop-shadow(0 18px 40px rgba(124,92,255,.55));
+  animation: logoIn .9s cubic-bezier(.2,.9,.25,1.2) both; transition: transform .6s var(--ease); }
+@keyframes logoIn { from { opacity: 0; transform: scale(.55) translateY(14px); filter: blur(10px); } }
+.splash-bars { position: relative; display: flex; gap: 5px; height: 26px; align-items: center; animation: fadeUp .6s .35s both; }
+.splash-bars i { width: 4px; height: 100%; border-radius: 4px; background: linear-gradient(180deg, rgb(80,220,255), rgb(150,110,255), rgb(255,90,190));
+  animation: bar 1s ease-in-out infinite; transform-origin: center; }
+.splash-bars i:nth-child(1) { animation-delay: -.9s } .splash-bars i:nth-child(2) { animation-delay: -.75s }
+.splash-bars i:nth-child(3) { animation-delay: -.6s } .splash-bars i:nth-child(4) { animation-delay: -.45s }
+.splash-bars i:nth-child(5) { animation-delay: -.3s } .splash-bars i:nth-child(6) { animation-delay: -.15s } .splash-bars i:nth-child(7) { animation-delay: 0s }
+@keyframes bar { 0%, 100% { transform: scaleY(.25); } 50% { transform: scaleY(1); } }
+.splash-name { position: relative; color: #fff; font: 700 22px var(--display); letter-spacing: -.02em; animation: fadeUp .6s .2s both; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .splash-bars i, .splash-glow { animation: none; } }
+/* safety net: never let the splash linger even if a script timer is paused */
+.splash { animation: splashAuto .5s 4s forwards; }
+@keyframes splashAuto { to { opacity: 0; visibility: hidden; pointer-events: none; } }

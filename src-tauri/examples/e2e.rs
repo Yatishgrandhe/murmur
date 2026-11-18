@@ -1,6 +1,6 @@
 //! End-to-end check without the UI: WAV file → Whisper → AI rewrite.
 //! Usage: cargo run --release --example e2e -- speech.wav [provider] [style]
-use murmur_lib::{audio, llm, settings::Settings, stt};
+use murmur_lib::{audio, llm, settings::Settings, stt, wake};
 use std::time::Instant;
 
 fn main() {
@@ -30,6 +30,12 @@ fn main() {
     std::thread::sleep(std::time::Duration::from_secs_f32((mono.len() as f32 / spec.sample_rate as f32).min(4.0)));
 
     // shortcut released
+    if std::env::var_os("MURMUR_WAKE").is_some() {
+        let heard = stt.transcribe(&s.model, &pcm, &s.language, std::slice::from_ref(&s.wake_phrase)).unwrap_or_default();
+        println!("wake: heard {heard:?} -> {:?}", wake::match_wake(&heard, &s.wake_phrase));
+        pending.cancel();
+        return;
+    }
     let t = Instant::now();
     let text = llm::apply_voice_commands(&stt.transcribe(&s.model, &pcm, &s.language, &s.dictionary).expect("transcribe"));
     let t_stt = t.elapsed().as_millis();

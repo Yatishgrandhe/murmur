@@ -61,15 +61,30 @@ fn mic_denied_message() -> String {
 /// Name/format of the microphone used last (for the diagnostic log).
 pub static LAST_DEVICE: Mutex<String> = Mutex::new(String::new());
 
-fn capture(stop: Arc<AtomicBool>, on_level: impl Fn(f32)) -> Captured {
+/// Streams the microphone continuously (wake word), handing over 16 kHz mono chunks ~10×/s
+/// until `stop` is set.
+pub fn stream_mic(stop: Arc<AtomicBool>, mut on_chunk: impl FnMut(&[f32])) -> Result<(), String> {
+    let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+    let level = Arc::new(AtomicU32::new(0));
+    let (stream, rate) = open_input(buf.clone(), level)?;
+    while !stop.load(Ordering::SeqCst) {
+        std::thread::sleep(Duration::from_millis(100));
+        let raw = std::mem::take(&mut *buf.lock());
+        if !raw.is_empty() {
+            on_chunk(&resample_to_16k(&raw, rate));
+        }
+    }
+    drop(stream);
+    Ok(())
+}
+
+fn open_input(buf: Arc<Mutex<Vec<f32>>>, level: Arc<AtomicU32>) -> Result<(cpal::Stream, u32), String> {
     let host = cpal::default_host();
     let dev = host.default_input_device().ok_or("No microphone found")?;
     let cfg = dev.default_input_config().map_err(|e| format!("Microphone unavailable: {e}"))?;
     *LAST_DEVICE.lock() = format!("{} · {} Hz · {} ch · {:?}", dev.name().unwrap_or_default(), cfg.sample_rate().0, cfg.channels(), cfg.sample_format());
     let rate = cfg.sample_rate().0;
     let ch = cfg.channels() as usize;
-    let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::with_capacity(rate as usize * 30)));
-    let level = Arc::new(AtomicU32::new(0));
     let err_fn = |e| eprintln!("murmur: audio stream error: {e}");
     let stream_cfg: cpal::StreamConfig = cfg.clone().into();
 
@@ -96,6 +111,13 @@ fn capture(stop: Arc<AtomicBool>, on_level: impl Fn(f32)) -> Captured {
     }
     .map_err(|e| format!("Couldn't open microphone: {e}"))?;
     stream.play().map_err(|e| format!("Couldn't start microphone: {e}"))?;
+    Ok((stream, rate))
+}
+
+fn capture(stop: Arc<AtomicBool>, on_level: impl Fn(f32)) -> Captured {
+    let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::with_capacity(48_000 * 30)));
+    let level = Arc::new(AtomicU32::new(0));
+    let (stream, rate) = open_input(buf.clone(), level.clone())?;
 
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(33));

@@ -28,6 +28,9 @@ pub struct Settings {
     pub restore_clipboard: bool,
     pub sounds: bool,
     pub onboarded: bool,
+    /// Hands-free start by voice ("Hey Murmur"). Keeps the mic open while on.
+    pub wake_word: bool,
+    pub wake_phrase: String,
 }
 
 impl Default for Settings {
@@ -47,6 +50,8 @@ impl Default for Settings {
             restore_clipboard: true,
             sounds: true,
             onboarded: false,
+            wake_word: false,
+            wake_phrase: "Hey Murmur".into(),
         }
     }
 }

@@ -10,6 +10,7 @@ pub mod llm;
 pub mod paste;
 pub mod settings;
 pub mod stt;
+pub mod wake;
 
 use futures_util::StreamExt;
 use parking_lot::Mutex;
@@ -258,6 +259,11 @@ fn pipeline(app: &AppHandle, c: &Arc<Core>, sess: Session) {
         return;
     }
 
+    deliver(app, c, &s, raw, pending, seconds, t0);
+}
+
+/// Rewrites `raw` (if an AI is set up), types/copies the result, and records it in history.
+fn deliver(app: &AppHandle, c: &Arc<Core>, s: &Settings, raw: String, pending: Result<llm::Pending, String>, seconds: f32, t0: Instant) {
     let mut warning = None;
     let mut used = s.provider.clone();
     let text = match pending {
@@ -311,6 +317,89 @@ fn pipeline(app: &AppHandle, c: &Arc<Core>, sess: Session) {
     settings::save(&history_path(), &*h);
     drop(h);
     let _ = app.emit("history-changed", ());
+}
+
+// ───────────────────────────── wake word ─────────────────────────────
+
+/// Runs for the life of the app. While the wake word is on (and a voice model is installed),
+/// keeps a mic stream open, cuts it into short utterances and checks each one on-device.
+fn wake_loop(app: AppHandle, c: Arc<Core>) {
+    let mut announced = false;
+    loop {
+        let s = c.settings.lock().clone();
+        if !s.wake_word || !stt::installed(&s.model) {
+            announced = false;
+            std::thread::sleep(Duration::from_millis(700));
+            continue;
+        }
+        if !announced {
+            report("wake", serde_json::json!({"listening": true, "phrase": s.wake_phrase}));
+            announced = true;
+        }
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut seg = wake::Segmenter::new();
+        let (app2, c2, stop2) = (app.clone(), c.clone(), stop.clone());
+        let res = audio::stream_mic(stop.clone(), move |chunk| {
+            let s = c2.settings.lock().clone();
+            if !s.wake_word {
+                stop2.store(true, std::sync::atomic::Ordering::SeqCst);
+                return;
+            }
+            if *c2.mode.lock() != Mode::Idle {
+                seg.reset(); // a dictation is running; don't listen to it
+                return;
+            }
+            for clip in seg.push(chunk) {
+                // only the wake check runs here: nothing is logged or sent unless it matches
+                let Ok(text) = c2.stt.transcribe(&s.model, &clip, &s.language, std::slice::from_ref(&s.wake_phrase)) else { continue };
+                let hit = wake::match_wake(&text, &s.wake_phrase);
+                // diagnostics without content: clip length and whether it matched, never the words
+                report("wake_clip", serde_json::json!({"seconds": clip.len() as f32 / 16_000.0, "matched": hit.is_some()}));
+                if let Some(rest) = hit {
+                    report("wake_hit", serde_json::json!({"with_command": !rest.is_empty()}));
+                    on_wake(&app2, &c2, rest);
+                    seg.reset();
+                    break;
+                }
+            }
+        });
+        if let Err(e) = res {
+            report("error", serde_json::json!(format!("wake word: {e}")));
+            std::thread::sleep(Duration::from_secs(3));
+        }
+    }
+}
+
+fn on_wake(app: &AppHandle, c: &Arc<Core>, rest: String) {
+    let words = rest.split_whitespace().count();
+    if words >= 2 {
+        // "Hey Murmur, tell John I'm late" → rewrite and type the command right away
+        {
+            let mut m = c.mode.lock();
+            if *m != Mode::Idle {
+                return;
+            }
+            *m = Mode::Processing;
+        }
+        position_overlay(app);
+        let s = c.settings.lock().clone();
+        if s.sounds {
+            audio::blip(audio::Blip::Stop);
+        }
+        let raw = llm::apply_voice_commands(&rest);
+        let pending = llm::Pending::start(&s);
+        deliver(app, c, &s, raw, pending, 0.0, Instant::now());
+        *c.mode.lock() = Mode::Idle;
+    } else {
+        // just "Hey Murmur" → start listening hands-free (stops by itself after a pause)
+        let mut m = c.mode.lock();
+        if *m != Mode::Idle {
+            return;
+        }
+        *m = Mode::HandsFree;
+        drop(m);
+        begin(app, c, true);
+    }
 }
 
 // ───────────────────────────── self-test ─────────────────────────────
@@ -921,6 +1010,10 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            {
+                let (h, c) = (handle.clone(), state.clone());
+                std::thread::Builder::new().name("murmur-wake".into()).spawn(move || wake_loop(h, c))?;
+            }
             if let Ok(wav) = std::env::var("MURMUR_SELFTEST") {
                 let (h, c) = (handle.clone(), state.clone());
                 std::thread::spawn(move || run_selftest(h, c, wav));
