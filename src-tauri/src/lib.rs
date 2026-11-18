@@ -72,7 +72,29 @@ struct Phase {
     hands_free: bool,
 }
 
+/// Bumped on every phase change; a scheduled dismiss only fires if nothing newer was shown.
+static PHASE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn emit_phase(app: &AppHandle, phase: &'static str, text: Option<String>, detail: Option<String>, hands_free: bool) {
+    let seq = PHASE_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    // Final states get a dismiss from Rust: the overlay's own JS timers can be throttled by
+    // macOS while its web view is in the background, which left the pill stuck on screen.
+    let linger_ms = match (phase, detail.as_deref()) {
+        ("done", Some("copied")) => Some(5_800),
+        ("done", Some(_)) | ("error", _) => Some(4_600),
+        ("done", None) => Some(1_900),
+        ("idle", Some(_)) => Some(1_500),
+        _ => None,
+    };
+    if let Some(ms) = linger_ms {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(ms));
+            if PHASE_SEQ.load(std::sync::atomic::Ordering::SeqCst) == seq {
+                let _ = app.emit_to("overlay", "dismiss", ());
+            }
+        });
+    }
     let _ = app.emit("phase", Phase { phase, text, detail, hands_free });
 }
 
@@ -306,7 +328,14 @@ fn deliver(app: &AppHandle, c: &Arc<Core>, s: &Settings, raw: String, pending: R
         let _ = arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text.clone()));
         copied = true;
     }
-    report("result", serde_json::json!({"raw": raw, "text": text, "ms": t0.elapsed().as_millis() as u64, "warning": warning, "provider": used, "copied": copied}));
+    // the always-on log keeps counts only; the dictated words go out only in self-test runs (MURMUR_REPORT)
+    let mut data = serde_json::json!({"ms": t0.elapsed().as_millis() as u64, "warning": warning, "provider": used, "copied": copied,
+        "raw_words": raw.split_whitespace().count(), "text_words": text.split_whitespace().count()});
+    if std::env::var_os("MURMUR_REPORT").is_some() {
+        data["raw"] = raw.clone().into();
+        data["text"] = text.clone().into();
+    }
+    report("result", data);
     let detail = if copied && warning.is_none() { Some("copied".to_string()) } else { warning };
     emit_phase(app, "done", Some(text.clone()), detail, false);
 
@@ -586,7 +615,37 @@ fn make_panel(w: &tauri::WebviewWindow) {
     raise_overlay(w);
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: keep the pill above other windows (incl. borderless full-screen apps like F11 browsers,
+/// video players and slideshows), out of Alt-Tab, and never focused. tao rewrites the extended
+/// style whenever a window flag changes, so this is re-applied every time the pill is shown.
+#[cfg(windows)]
+fn raise_overlay(w: &tauri::WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST, SWP_FRAMECHANGED,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    };
+    let w2 = w.clone();
+    let _ = w.run_on_main_thread(move || {
+        let Ok(h) = w2.hwnd() else { return };
+        let hwnd = h.0 as windows_sys::Win32::Foundation::HWND;
+        unsafe {
+            // read-modify-write keeps tao's WS_EX_LAYERED | WS_EX_TRANSPARENT (click-through)
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) as isize);
+            SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED,
+            );
+        }
+    });
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn raise_overlay(w: &tauri::WebviewWindow) {
     let _ = w.set_always_on_top(true);
 }
@@ -605,7 +664,9 @@ fn position_overlay(app: &AppHandle) {
         .cloned()
         .or_else(|| app.primary_monitor().ok().flatten());
     let (Some(m), Ok(size)) = (mon, w.outer_size()) else { return };
-    let (pos, sz, scale) = (m.position(), m.size(), m.scale_factor());
+    // work area = the monitor minus the taskbar (Windows) or Dock and menu bar (macOS), so the pill sits above it
+    let wa = m.work_area();
+    let (pos, sz, scale) = (&wa.position, &wa.size, m.scale_factor());
     let x = pos.x + (sz.width as i32 - size.width as i32) / 2;
     let y = pos.y + sz.height as i32 - size.height as i32 - (64.0 * scale) as i32;
     let _ = w.set_position(PhysicalPosition::new(x, y));
@@ -980,7 +1041,15 @@ pub fn run() {
                 .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("Murmur")
                 .menu(&menu)
-                .show_menu_on_left_click(true)
+                // macOS: left click shows the menu. Windows: left click opens the window, right click the menu.
+                .show_menu_on_left_click(cfg!(target_os = "macos"))
+                .on_tray_icon_event(|tray, ev| {
+                    if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, button_state: tauri::tray::MouseButtonState::Up, .. } = ev {
+                        if !cfg!(target_os = "macos") {
+                            show_main(tray.app_handle(), None);
+                        }
+                    }
+                })
                 .on_menu_event(move |app, e| match e.id.as_ref() {
                     "prompt" => {
                         let c = core(app);

@@ -27,7 +27,7 @@ pub fn model(id: &str) -> Option<&'static ModelInfo> {
 }
 
 pub fn models_dir() -> PathBuf {
-    crate::settings::data_dir().join("models")
+    crate::settings::models_base_dir().join("models")
 }
 
 pub fn model_path(id: &str) -> Option<PathBuf> {

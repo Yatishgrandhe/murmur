@@ -7,6 +7,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -31,7 +32,14 @@ pub fn path_var() -> &'static OsString {
         dirs.extend(extra_dirs());
         let mut seen = std::collections::HashSet::new();
         dirs.retain(|d| !d.as_os_str().is_empty() && seen.insert(d.clone()));
-        std::env::join_paths(dirs).unwrap_or_default()
+        match std::env::join_paths(&dirs) {
+            Ok(p) => p,
+            Err(_) => {
+                // One bad entry (a quote or ';' in a Windows path) must not wipe out the whole PATH.
+                dirs.retain(|d| std::env::join_paths([d]).is_ok());
+                std::env::join_paths(dirs).unwrap_or_default()
+            }
+        }
     })
 }
 
@@ -54,7 +62,11 @@ fn extra_dirs() -> Vec<PathBuf> {
         if let Some(a) = std::env::var_os("APPDATA") {
             v.push(PathBuf::from(a).join("npm"));
         }
+        if let Some(u) = std::env::var_os("USERPROFILE") {
+            v.push(PathBuf::from(u).join("scoop").join("shims"));
+        }
         if let Some(l) = std::env::var_os("LOCALAPPDATA") {
+            v.push(PathBuf::from(&l).join("Yarn").join("bin"));
             v.push(PathBuf::from(&l).join("Programs").join("claude"));
             v.push(PathBuf::from(l).join("pnpm"));
         }
@@ -66,7 +78,57 @@ fn extra_dirs() -> Vec<PathBuf> {
 }
 
 pub fn find(name: &str) -> Option<PathBuf> {
-    which::which_in(name, Some(path_var()), std::env::temp_dir()).ok()
+    which::which_in(name, Some(path_var()), std::env::temp_dir()).ok().or_else(|| {
+        // Cached PATH is stale if the CLI was installed while Murmur runs: re-check the install dirs.
+        extra_dirs().iter().find_map(|d| which::which_in(name, Some(d), std::env::temp_dir()).ok())
+    })
+}
+
+/// Like `find`, but on Windows a native `<name>.exe` wins over an npm `.cmd` shim in the same dirs.
+pub fn find_prefer_exe(name: &str) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        let exe = format!("{name}.exe");
+        if let Some(p) = std::env::split_paths(path_var()).map(|d| d.join(&exe)).find(|p| p.is_file()) {
+            return Some(p);
+        }
+    }
+    find(name)
+}
+
+/// Kills a CLI child. On Windows the npm `.cmd` shim runs node.exe as a grandchild that
+/// `Child::kill` would leave behind, so the whole tree is killed with taskkill first.
+pub fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+    let _ = child.kill();
+}
+
+/// `output()` with a deadline: a hung CLI is killed (with its process tree) instead of blocking.
+fn output_within(c: &mut Command, limit: Duration) -> std::io::Result<std::process::Output> {
+    let mut child = c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let deadline = Instant::now() + limit;
+    loop {
+        if child.try_wait()?.is_some() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            kill_tree(&mut child);
+            let _ = child.wait();
+            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "Timed out checking sign-in"));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    child.wait_with_output()
 }
 
 /// A `Command` for a CLI with the augmented PATH and no console window on Windows.
@@ -100,8 +162,8 @@ pub fn status(provider: &str) -> CliStatus {
     };
     let mut st = CliStatus { installed: true, ..Default::default() };
     let out = match provider {
-        "claude" => command(&bin).args(["auth", "status"]).stdin(Stdio::null()).output(),
-        _ => command(&bin).args(["login", "status"]).stdin(Stdio::null()).output(),
+        "claude" => output_within(command(&bin).args(["auth", "status"]), Duration::from_secs(6)),
+        _ => output_within(command(&bin).args(["login", "status"]), Duration::from_secs(6)),
     };
     match out {
         Ok(o) => {
@@ -140,10 +202,11 @@ pub fn setup_command(provider: &str, action: &str) -> Option<String> {
     let win = cfg!(windows);
     // PowerShell needs `&` to run a quoted path; POSIX shells take the quoted path as-is.
     let run = |bin: PathBuf, args: &str| {
+        let p = bin.display().to_string();
         if win {
-            format!("& '{}' {args}", bin.display())
+            format!("& '{}' {args}", p.replace('\'', "''"))
         } else {
-            format!("'{}' {args}", bin.display())
+            format!("'{p}' {args}")
         }
     };
     Some(match (provider, action) {

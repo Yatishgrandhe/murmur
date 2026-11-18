@@ -30,6 +30,8 @@ speech-recognition mistakes.\n\
 **Constraints** (what to avoid), **Output format** (exactly what the answer should look like), and a final line \
 asking the assistant to state its assumptions or ask up to 3 clarifying questions if something essential is missing.\n\
 - Be specific and actionable; no fluff, no generic advice. Usually 150-400 words; short asks get shorter prompts.\n\
+- If the transcript is not a request or task at all (small talk, an apology, a test phrase), output the \
+transcript itself, cleaned up, and nothing else. Never refuse, apologize or explain.\n\
 - Output ONLY the prompt.\n";
 
 pub fn system_prompt(s: &Settings) -> String {
@@ -169,10 +171,17 @@ pub fn trivial(text: &str) -> Option<String> {
 
 /// Like `trivial`, but Prompt mode always goes to the model (even "summarize this" deserves a real prompt).
 pub fn trivial_for(text: &str, style: &str) -> Option<String> {
-    if style == "prompt" {
-        return None;
-    }
     let words = text.split_whitespace().count();
+    // Prompt mode: a few words ("I'm sorry", "okay thanks") aren't a request; type them as said
+    // instead of asking the model to build a prompt out of nothing.
+    if style == "prompt" {
+        if words == 0 || words > 3 {
+            return None;
+        }
+        let t = text.trim();
+        let mut c = t.chars();
+        return c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str());
+    }
     if words == 0 || words > 2 {
         return None;
     }
@@ -240,7 +249,7 @@ impl Pending {
         let system = system_prompt(s);
         match s.provider.as_str() {
             "claude" => {
-                let bin = cli::find("claude").ok_or("Claude Code isn't installed. Open Murmur › AI to set it up.")?;
+                let bin = cli::find_prefer_exe("claude").ok_or("Claude Code isn't installed. Open Murmur › AI to set it up.")?;
                 let pf = tmp_file("prompt");
                 std::fs::write(&pf, &system).map_err(|e| e.to_string())?;
                 let mut c = cli::command(&bin);
@@ -254,7 +263,7 @@ impl Pending {
                 Self::spawn(c, None, Some(pf), None)
             }
             "codex" => {
-                let bin = cli::find("codex").ok_or("Codex (ChatGPT) isn't installed. Open Murmur › AI to set it up.")?;
+                let bin = cli::find_prefer_exe("codex").ok_or("Codex (ChatGPT) isn't installed. Open Murmur › AI to set it up.")?;
                 let out = tmp_file("codex");
                 let mut c = cli::command(&bin);
                 c.args(["exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", "--color", "never", "--json"])
@@ -294,7 +303,7 @@ impl Pending {
 
     pub fn cancel(self) {
         if let Pending::Cli { mut child, prompt_file, codex_out, .. } = self {
-            let _ = child.kill();
+            cli::kill_tree(&mut child);
             let _ = child.wait();
             for f in [prompt_file, codex_out].into_iter().flatten() {
                 let _ = std::fs::remove_file(f);
@@ -331,7 +340,7 @@ impl Pending {
                         // post-turn summary, Codex ~0.4 s). Take the answer as soon as it arrives.
                         {
                             if let Some(answer) = early_answer(&line) {
-                                let _ = child.kill();
+                                cli::kill_tree(&mut child);
                                 std::thread::spawn(move || {
                                     let _ = child.wait();
                                 });
@@ -346,7 +355,7 @@ impl Pending {
                     match child.try_wait() {
                         Ok(Some(st)) => break st,
                         Ok(None) if Instant::now() > deadline => {
-                            let _ = child.kill();
+                            cli::kill_tree(&mut child);
                             cleanup(&prompt_file);
                             return Err("The AI took too long, so Murmur pasted your raw words.".into());
                         }
@@ -492,7 +501,8 @@ mod tests {
         let p = system_prompt(&s);
         assert!(p.contains("Never answer") && p.contains("Output format") && p.contains("exactly as written: Murmur."));
         assert!(!p.contains("Style: clean"));
-        assert_eq!(trivial_for("summarize this", "prompt"), None);
+        assert_eq!(trivial_for("I'm sorry.", "prompt").as_deref(), Some("I'm sorry."));
+        assert_eq!(trivial_for("research the top articles on context engineering", "prompt"), None);
         assert_eq!(trivial_for("sounds good", "clean").as_deref(), Some("Sounds good"));
     }
 

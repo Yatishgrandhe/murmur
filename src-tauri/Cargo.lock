@@ -2633,6 +2633,7 @@ dependencies = [
  "which",
  "whisper-rs",
  "window-vibrancy 0.6.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

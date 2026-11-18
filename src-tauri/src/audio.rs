@@ -67,11 +67,26 @@ pub fn stream_mic(stop: Arc<AtomicBool>, mut on_chunk: impl FnMut(&[f32])) -> Re
     let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
     let level = Arc::new(AtomicU32::new(0));
     let (stream, rate) = open_input(buf.clone(), level)?;
+    // Windows privacy settings that block the mic make it deliver exact zeros forever.
+    // ~3 s of them in a row means "blocked", so report it instead of listening to nothing.
+    let mut zero_run = 0usize;
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(100));
         let raw = std::mem::take(&mut *buf.lock());
         if !raw.is_empty() {
-            on_chunk(&resample_to_16k(&raw, rate));
+            let chunk = resample_to_16k(&raw, rate);
+            if cfg!(windows) {
+                if chunk.iter().all(|&s| s == 0.0) {
+                    zero_run += chunk.len();
+                } else {
+                    zero_run = 0;
+                }
+                if zero_run >= 3 * 16_000 {
+                    drop(stream);
+                    return Err(mic_denied_message());
+                }
+            }
+            on_chunk(&chunk);
         }
     }
     drop(stream);
@@ -251,9 +266,6 @@ pub fn blip(kind: Blip) {
         let _ = (|| -> Option<()> {
             let dev = cpal::default_host().default_output_device()?;
             let cfg = dev.default_output_config().ok()?;
-            if cfg.sample_format() != cpal::SampleFormat::F32 {
-                return None;
-            }
             let rate = cfg.sample_rate().0 as f32;
             let ch = cfg.channels() as usize;
             let notes: &[(f32, f32)] = match kind {
@@ -274,22 +286,35 @@ pub fn blip(kind: Blip) {
             let len = wave.len();
             let wave = Arc::new(wave);
             let pos = Arc::new(Mutex::new(0usize));
-            let (w2, p2) = (wave.clone(), pos.clone());
-            let stream = dev
-                .build_output_stream(
-                    &cfg.into(),
-                    move |out: &mut [f32], _: &_| {
-                        let mut p = p2.lock();
-                        for frame in out.chunks_mut(ch) {
-                            let v = w2.get(*p).copied().unwrap_or(0.0);
-                            *p += 1;
-                            frame.iter_mut().for_each(|s| *s = v);
-                        }
-                    },
-                    |_| {},
-                    None,
-                )
-                .ok()?;
+            let stream_cfg = cfg.config();
+            // The wave is f32 in -1..1; convert it to whatever sample format the device wants.
+            macro_rules! out {
+                ($t:ty, $conv:expr) => {{
+                    let (w2, p2) = (wave.clone(), pos.clone());
+                    let conv = $conv;
+                    dev.build_output_stream(
+                        &stream_cfg,
+                        move |out: &mut [$t], _: &_| {
+                            let mut p = p2.lock();
+                            for frame in out.chunks_mut(ch) {
+                                let v = w2.get(*p).copied().unwrap_or(0.0);
+                                *p += 1;
+                                let s: $t = conv(v);
+                                frame.iter_mut().for_each(|x| *x = s);
+                            }
+                        },
+                        |_| {},
+                        None,
+                    )
+                }};
+            }
+            let stream = match cfg.sample_format() {
+                cpal::SampleFormat::F32 => out!(f32, |v: f32| v),
+                cpal::SampleFormat::I16 => out!(i16, |v: f32| (v.clamp(-1.0, 1.0) * i16::MAX as f32) as i16),
+                cpal::SampleFormat::I32 => out!(i32, |v: f32| (v.clamp(-1.0, 1.0) * i32::MAX as f32) as i32),
+                _ => return None,
+            }
+            .ok()?;
             stream.play().ok()?;
             std::thread::sleep(Duration::from_secs_f32(len as f32 / rate + 0.08));
             Some(())

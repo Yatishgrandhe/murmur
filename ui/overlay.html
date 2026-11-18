@@ -111,6 +111,7 @@ const pill = document.getElementById('pill');
 const row = document.getElementById('row');
 const aura = document.getElementById('aura');
 const canvas = document.getElementById('wave');
+const PASTE_KEY = navigator.userAgent.includes('Windows') ? 'Ctrl+V' : '⌘V';
 const ctx = canvas.getContext('2d');
 
 let target = 0, level = 0, vel = 0, energy = 0;   // voice level (spring-smoothed)
@@ -189,9 +190,10 @@ function render(p) {
       const copied = p.detail === 'copied', warn = p.detail && !copied;
       row.innerHTML = `<span class="check"><svg viewBox="0 0 14 14"><path d="M3 7.4 5.9 10 11 4" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` +
         (warn ? `<span class="preview warn fade-in">${esc(p.detail)}</span>` : `<span class="preview fade-in">${esc(short)}</span>`) +
-        (copied ? `<span class="tag fade-in">⌘V to paste</span>` : '');
+        (copied ? `<span class="tag fade-in">${PASTE_KEY} to paste</span>` : '');
       aura.className = 'aura on ok';
-      show(fitWidth());
+      // never collapse to just the checkmark: at least wide enough for the text preview
+      show(Math.max(fitWidth(), Math.min(MAX_W, 84 + (copied ? 104 : 0) + (warn ? Math.min(p.detail.length, 48) : short.length) * 7)));
       hide(warn ? 4200 : copied ? 5500 : 1500);
       break;
     }
@@ -311,6 +313,13 @@ function inspect(phase) {
 if (T) {
   T.event.listen('phase', e => { render(e.payload); setTimeout(() => inspect(e.payload.phase), 700); });
   T.event.listen('level', e => { target = e.payload; });
+  // backup dismiss from Rust (JS timers can be throttled while this window is in the background)
+  T.event.listen('dismiss', () => {
+    if (mode === 'listen' || mode === 'think') return;
+    gen++;
+    pill.classList.add('hide'); pill.classList.remove('show');
+    aura.className = 'aura'; mode = 'idle'; setW(56);
+  });
 } else {
   // browser preview: simulate a session
   const demo = [['listening', 0], ['transcribing', 3800], ['rewriting', 4600], ['done', 5800]];

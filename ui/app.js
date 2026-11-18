@@ -31,6 +31,9 @@ const listen = (ev, fn) => T ? T.event.listen(ev, e => fn(e.payload)) : null;
 let st = null;      // app state
 let ps = null;      // provider status
 const isMac = () => (st?.platform || 'macos') === 'macos';
+const pick = (mac, win) => (isMac() ? mac : win);   // platform wording for inline strings
+// elements with data-win="..." get that text on Windows; the HTML text stays as the macOS copy
+function paintPlatform(root = document) { $$('[data-win]', root).forEach(e => { if (!isMac()) e.textContent = e.dataset.win; }); }
 
 // ───────── icons ─────────
 const ICON = {
@@ -205,7 +208,7 @@ const STYLE_DESC = {
 };
 function renderStyle() {
   $$('#styles button').forEach(b => b.classList.toggle('on', b.dataset.v === st.settings.style));
-  $('#styleDesc').textContent = STYLE_DESC[st.settings.style] || '';
+  $('#styleDesc').textContent = (STYLE_DESC[st.settings.style] || '').replace('menu bar', pick('menu bar', 'system tray'));
   $('#promptDemo').classList.toggle('hidden', st.settings.style !== 'prompt');
   $('#customPrompt').classList.toggle('hidden', st.settings.style !== 'custom');
   $('#customPrompt').value = st.settings.custom_prompt;
@@ -325,7 +328,7 @@ let heroEnergy = 0.25;
 listen('phase', p => {
   renderStatus(p.phase);
   heroEnergy = p.phase === 'listening' ? 1 : (p.phase === 'transcribing' || p.phase === 'rewriting') ? .55 : .25;
-  if (p.phase === 'done' && obStep === 4) { obDone = true; renderOb(); }
+  if (p.phase === 'done' && obIndex(obStep) === 4) { obDone = true; renderOb(); }
   if (p.phase === 'done' || p.phase === 'error' || p.phase === 'idle') setTimeout(() => renderStatus(), 1200);
 });
 listen('history-changed', async () => { const s = await invoke('get_state'); st.history = s.history; renderHome(); renderHistory(); });
@@ -409,7 +412,7 @@ function renderOb() {
     const pb = $('#obPerm'); if (pb) pb.onclick = () => { invoke('open_privacy', { which: 'accessibility' }); pollPerm(); };
   } else {
     b.innerHTML = `<h1>${obDone ? 'Beautiful.' : 'Give it a try'}</h1>
-      <p>${obDone ? "That's it. Murmur lives in your menu bar and works in every app." : 'Click the box, hold the shortcut, say something, and let go.'}</p>
+      <p>${obDone ? `That's it. Murmur lives in your ${pick('menu bar', 'system tray')} and works in every app.` :'Click the box, hold the shortcut, say something, and let go.'}</p>
       <div class="keys ob-big-keys">${keysHTML(st.settings.shortcut)}</div>
       <textarea class="ob-try" id="obTry" placeholder="Your words will appear here…"></textarea>
       ${next(obDone ? 'Start using Murmur' : 'Finish')}`;
@@ -441,6 +444,7 @@ function dismissSplash() {
   st = await invoke('get_state');
   if (st.vibrancy) document.documentElement.classList.add('vibrant');
   if (st.platform === 'windows') document.documentElement.classList.add('win');
+  paintPlatform();
   $('#ver').textContent = 'v' + st.version;
   paintIcons();
   renderAll();

@@ -84,8 +84,22 @@ pub fn save<T: Serialize>(path: &Path, v: &T) {
     }
     if let Ok(b) = serde_json::to_vec_pretty(v) {
         let tmp = path.with_extension("tmp");
-        if std::fs::write(&tmp, b).is_ok() {
-            let _ = std::fs::rename(tmp, path);
+        let wrote_tmp = std::fs::write(&tmp, &b).is_ok();
+        if wrote_tmp {
+            // Windows can refuse the rename for a moment while another process has the file open
+            for attempt in 0..3 {
+                if std::fs::rename(&tmp, path).is_ok() {
+                    return;
+                }
+                if attempt < 2 {
+                    std::thread::sleep(std::time::Duration::from_millis(30));
+                }
+            }
+        }
+        // rename keeps failing: write the file directly
+        let _ = std::fs::write(path, &b);
+        if wrote_tmp {
+            let _ = std::fs::remove_file(&tmp);
         }
     }
 }
@@ -96,6 +110,19 @@ pub fn config_dir() -> PathBuf {
 
 pub fn data_dir() -> PathBuf {
     dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("Murmur")
+}
+
+/// Where the large voice models live. On Windows that is the non-roaming local app data folder
+/// (the roaming folder would sync gigabytes of models across machines); elsewhere it is data_dir().
+pub fn models_base_dir() -> PathBuf {
+    #[cfg(windows)]
+    {
+        dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join("Murmur")
+    }
+    #[cfg(not(windows))]
+    {
+        data_dir()
+    }
 }
 
 const KEYRING_SERVICE: &str = "app.murmur.dictation";

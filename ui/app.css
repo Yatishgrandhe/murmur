@@ -332,3 +332,8 @@ select.field { appearance: none; -webkit-appearance: none; background-image: lin
 /* safety net: never let the splash linger even if a script timer is paused */
 .splash { animation: splashAuto .5s 4s forwards; }
 @keyframes splashAuto { to { opacity: 0; visibility: hidden; pointer-events: none; } }
+
+/* Windows: the window has a native title bar, so no traffic-light inset and no drag strip */
+.win .sidebar { padding-top: 14px; }
+.win main { padding-top: 24px; }
+.win .drag { display: none; }
