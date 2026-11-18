@@ -5,6 +5,10 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to (re)build and attach installers to, e.g. v0.2.0
+        required: true
 
 permissions:
   contents: write
@@ -44,8 +48,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Murmur ${{ github.ref_name }}
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: Murmur ${{ inputs.tag || github.ref_name }}
           releaseBody: |
             **macOS:** download the `.dmg`, drag Murmur to Applications. First launch: right-click Murmur → Open (the app is not notarized yet).
             **Windows:** download the `-setup.exe` and run it. If SmartScreen appears, click More info → Run anyway.

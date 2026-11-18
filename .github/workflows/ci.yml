@@ -17,6 +17,8 @@ jobs:
       matrix:
         os: [macos-latest, windows-2022]
     runs-on: ${{ matrix.os }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"   # same as the bundle's minimumSystemVersion, so CI links like the release
     defaults:
       run:
         working-directory: src-tauri
