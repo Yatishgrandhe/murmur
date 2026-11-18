@@ -47,7 +47,7 @@ impl Default for Settings {
             anthropic_model: "claude-haiku-5-5".into(),
             openai_model: "gpt-5-mini".into(),
             dictionary: vec![],
-            restore_clipboard: true,
+            restore_clipboard: false,
             sounds: true,
             onboarded: false,
             wake_word: false,

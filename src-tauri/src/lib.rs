@@ -318,6 +318,15 @@ fn deliver(app: &AppHandle, c: &Arc<Core>, s: &Settings, raw: String, pending: R
     let selftest_no_paste = std::env::var_os("MURMUR_SELFTEST").is_some() && std::env::var_os("MURMUR_SELFTEST_PASTE").is_none();
     if selftest_no_paste {
         // self-test: don't type into whatever app happens to be focused
+    } else if paste::accessibility_ok() && {
+        let f = paste::focused_accepts_text();
+        report("focus", serde_json::json!({"accepts_text": f}));
+        f == Some(false)
+    } {
+        // nowhere to type (desktop, a button, nothing focused): don't fire a paste into nothing,
+        // just leave the dictation on the clipboard and say so
+        let _ = arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text.clone()));
+        copied = true;
     } else if paste::accessibility_ok() {
         if let Err(e) = paste::paste(&text, s.restore_clipboard) {
             let _ = arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text.clone()));

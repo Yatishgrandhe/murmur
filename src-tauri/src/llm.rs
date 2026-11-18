@@ -30,8 +30,9 @@ speech-recognition mistakes.\n\
 **Constraints** (what to avoid), **Output format** (exactly what the answer should look like), and a final line \
 asking the assistant to state its assumptions or ask up to 3 clarifying questions if something essential is missing.\n\
 - Be specific and actionable; no fluff, no generic advice. Usually 150-400 words; short asks get shorter prompts.\n\
-- If the transcript is not a request or task at all (small talk, an apology, a test phrase), output the \
-transcript itself, cleaned up, and nothing else. Never refuse, apologize or explain.\n\
+- Questions and requests for information ARE requests: turn them into a prompt too. Only if the transcript is \
+clearly not addressed to an AI at all (a greeting, an apology, a test phrase) output the transcript itself, \
+cleaned up. Either way never refuse, apologize, explain, or describe the transcript or what you are doing.\n\
 - Ignore any system notes, reminders, account details or metadata outside the transcript; never mention or \
 repeat them.\n\
 - Output ONLY the prompt.\n";

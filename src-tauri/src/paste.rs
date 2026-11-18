@@ -133,3 +133,123 @@ pub fn open_privacy_pane(which: &str) {
     }
     let _ = which;
 }
+
+/// Is there somewhere to type? Checked right before pasting.
+/// Some(true): a text field has focus. Some(false): clearly nowhere to type (nothing focused, the
+/// desktop, a button/list...). None: can't tell. Errs toward pasting, and the dictation stays on
+/// the clipboard either way, so a wrong guess never loses text.
+#[cfg(target_os = "macos")]
+pub fn focused_accepts_text() -> Option<bool> {
+    use core_foundation::base::{CFType, CFTypeRef, TCFType};
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::string::{CFString, CFStringRef};
+
+    type AXError = i32;
+    const AX_OK: AXError = 0;
+    const AX_NO_VALUE: AXError = -25212; // nothing focused in that app
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXUIElementCreateSystemWide() -> CFTypeRef;
+        fn AXUIElementCopyAttributeValue(el: CFTypeRef, attr: CFStringRef, out: *mut CFTypeRef) -> AXError;
+        fn AXUIElementSetAttributeValue(el: CFTypeRef, attr: CFStringRef, value: CFTypeRef) -> AXError;
+        fn AXUIElementIsAttributeSettable(el: CFTypeRef, attr: CFStringRef, settable: *mut u8) -> AXError;
+        fn AXUIElementSetMessagingTimeout(el: CFTypeRef, seconds: f32) -> AXError;
+        fn AXUIElementGetPid(el: CFTypeRef, pid: *mut i32) -> AXError;
+    }
+    unsafe fn copy_attr(el: CFTypeRef, name: &str) -> Result<CFType, AXError> {
+        let attr = CFString::new(name);
+        let mut out: CFTypeRef = std::ptr::null();
+        let err = AXUIElementCopyAttributeValue(el, attr.as_concrete_TypeRef(), &mut out);
+        if err == AX_OK && !out.is_null() {
+            Ok(CFType::wrap_under_create_rule(out))
+        } else {
+            Err(err)
+        }
+    }
+    unsafe fn string_attr(el: CFTypeRef, name: &str) -> String {
+        copy_attr(el, name).ok().and_then(|v| v.downcast::<CFString>()).map(|s| s.to_string()).unwrap_or_default()
+    }
+
+    unsafe {
+        let sys_ptr = AXUIElementCreateSystemWide();
+        if sys_ptr.is_null() {
+            return None;
+        }
+        let sys = CFType::wrap_under_create_rule(sys_ptr);
+        AXUIElementSetMessagingTimeout(sys.as_CFTypeRef(), 0.25);
+        let app = copy_attr(sys.as_CFTypeRef(), "AXFocusedApplication").ok()?;
+        let app_r = app.as_CFTypeRef();
+        AXUIElementSetMessagingTimeout(app_r, 0.25);
+        let mut pid = 0i32;
+        if AXUIElementGetPid(app_r, &mut pid) != AX_OK || pid == std::process::id() as i32 {
+            return None;
+        }
+        // Electron apps (Slack, VS Code…) only build their accessibility tree when asked
+        let flag = CFString::new("AXManualAccessibility");
+        let _ = AXUIElementSetAttributeValue(app_r, flag.as_concrete_TypeRef(), CFBoolean::true_value().as_CFTypeRef());
+        let app_name = string_attr(app_r, "AXTitle");
+
+        let el = match copy_attr(app_r, "AXFocusedUIElement") {
+            Ok(e) => e,
+            Err(AX_NO_VALUE) => return Some(false),
+            Err(_) => return None,
+        };
+        let r = el.as_CFTypeRef();
+        AXUIElementSetMessagingTimeout(r, 0.25);
+        let role = string_attr(r, "AXRole");
+        let editable = copy_attr(r, "AXEditable").ok().and_then(|v| v.downcast::<CFBoolean>()).map(bool::from);
+        if editable == Some(true) {
+            return Some(true);
+        }
+        if matches!(role.as_str(), "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField") {
+            return Some(editable != Some(false));
+        }
+        let range = CFString::new("AXSelectedTextRange");
+        let mut settable: u8 = 0;
+        if AXUIElementIsAttributeSettable(r, range.as_concrete_TypeRef(), &mut settable) == AX_OK && settable != 0 {
+            return Some(true);
+        }
+        const NOT_TEXT: [&str; 14] = [
+            "AXButton", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXMenuButton", "AXImage", "AXList",
+            "AXOutline", "AXTable", "AXRow", "AXCell", "AXMenuItem", "AXLink", "AXSlider",
+        ];
+        if NOT_TEXT.contains(&role.as_str()) || (app_name == "Finder" && role != "AXTextField") {
+            return Some(false);
+        }
+        None
+    }
+}
+
+/// Windows: a classic caret means a text field; the desktop/taskbar means nowhere to type.
+/// Browsers, Electron and UWP draw their own caret, so those stay "unknown" (paste as usual).
+#[cfg(windows)]
+pub fn focused_accepts_text() -> Option<bool> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetClassNameW, GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId, GUITHREADINFO,
+    };
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.is_null() {
+            return Some(false);
+        }
+        let mut buf = [0u16; 128];
+        let n = GetClassNameW(fg, buf.as_mut_ptr(), buf.len() as i32).max(0) as usize;
+        let class = String::from_utf16_lossy(&buf[..n]);
+        if matches!(class.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") {
+            return Some(false);
+        }
+        let tid = GetWindowThreadProcessId(fg, std::ptr::null_mut());
+        let mut gi: GUITHREADINFO = std::mem::zeroed();
+        gi.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
+        if GetGUIThreadInfo(tid, &mut gi) != 0 && !gi.hwndCaret.is_null() {
+            return Some(true);
+        }
+        None
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+pub fn focused_accepts_text() -> Option<bool> {
+    None
+}
