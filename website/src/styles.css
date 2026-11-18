@@ -45,7 +45,6 @@
 /* ================= Base ================= */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
-@media (min-width: 900px) and (min-height: 640px) { html { scroll-snap-type: y proximity; } }
 body { background: var(--n0); color: var(--n5); font-family: var(--font); font-size: var(--body); line-height: 1.45; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
 body::after {
   content: ''; position: fixed; inset: 0; z-index: 90; pointer-events: none; opacity: 0.028;
@@ -63,7 +62,7 @@ h2 { font-size: var(--h2); font-weight: 700; letter-spacing: -0.03em; line-heigh
 h3 { font-weight: 600; }
 
 /* ================= Sections ================= */
-.sec { position: relative; height: 100vh; height: 100svh; min-height: 640px; display: flex; flex-direction: column; overflow: hidden; isolation: isolate; scroll-snap-align: start;
+.sec { position: relative; height: 100vh; height: 100svh; min-height: 640px; display: flex; flex-direction: column; overflow: hidden; isolation: isolate;
   padding: calc(var(--nav-h) + clamp(24px, 5vh, 64px)) 0 clamp(32px, 6vh, 48px); }
 .sec > .wrap { flex: 1; min-height: 0; }
 .wrap { width: var(--wrap); margin: 0 auto; }
