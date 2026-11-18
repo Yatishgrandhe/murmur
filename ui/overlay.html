@@ -1,0 +1,288 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Murmur Overlay</title>
+<style>
+  :root {
+    --c1: 80, 220, 255;
+    --c2: 150, 110, 255;
+    --c3: 255, 90, 190;
+    --spring: linear(0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.9%, 0.938 16.7%, 1.017 19.4%, 1.067, 1.099 24.3%, 1.108 26%, 1.103, 1.088 30.4%, 1.008 39.6%, 0.989 44.1%, 0.993 52.6%, 1.001 66.3%, 1);
+  }
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; -webkit-user-select: none; cursor: default; }
+  body { font: 500 13px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+
+  .stage { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 18px; }
+
+  .pill {
+    --w: 56px;
+    position: relative; height: 50px; width: var(--w); border-radius: 999px;
+    background:
+      radial-gradient(120% 140% at 50% 0%, rgba(255,255,255,.10), transparent 55%),
+      linear-gradient(180deg, rgba(28,27,38,.94), rgba(10,10,15,.96));
+    box-shadow:
+      0 0 0 .5px rgba(255,255,255,.16) inset,
+      0 1px 0 rgba(255,255,255,.10) inset,
+      0 18px 40px -12px rgba(0,0,0,.65),
+      0 2px 8px rgba(0,0,0,.35);
+    display: flex; align-items: center; overflow: hidden;
+    opacity: 0; transform: translateY(14px) scale(.6); filter: blur(6px);
+    transition:
+      width .62s var(--spring),
+      transform .62s var(--spring),
+      opacity .22s ease,
+      filter .3s ease,
+      box-shadow .4s ease;
+  }
+  .pill.show { opacity: 1; transform: none; filter: none; }
+  .pill.hide { transition: width .3s ease, transform .32s cubic-bezier(.4,0,.6,1), opacity .25s ease .05s, filter .3s ease; }
+
+  /* soft colored aura that breathes with the voice */
+  .aura {
+    position: absolute; left: 50%; bottom: 18px; width: 260px; height: 50px; margin-left: -130px; border-radius: 999px;
+    background: linear-gradient(90deg, rgba(var(--c1),.9), rgba(var(--c2),.9), rgba(var(--c3),.9));
+    filter: blur(26px); opacity: 0; transform: scale(.7); transition: opacity .4s ease, transform .5s var(--spring);
+    pointer-events: none;
+  }
+  .aura.on { opacity: calc(.18 + var(--lvl, 0) * .55); transform: scale(calc(.85 + var(--lvl, 0) * .25)); }
+  .aura.err { background: rgba(255, 69, 58, .9); }
+  .aura.ok { background: linear-gradient(90deg, rgba(48,209,88,.8), rgba(var(--c1),.7)); }
+
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; transition: opacity .35s ease; }
+
+  .row { position: relative; display: flex; align-items: center; gap: 10px; padding: 0 18px; width: 100%; height: 100%; box-sizing: border-box; white-space: nowrap; color: rgba(255,255,255,.92); }
+  .row > * { flex: none; }
+
+  .timer { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 12px; color: rgba(255,255,255,.55); letter-spacing: .02em; transition: opacity .3s; }
+  .rec { width: 7px; height: 7px; border-radius: 50%; background: #ff453a; box-shadow: 0 0 10px #ff453a; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; transform: scale(.8); } }
+  .tag { font-size: 10px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; padding: 4px 7px; border-radius: 999px; color: rgba(255,255,255,.85); background: rgba(255,255,255,.1); box-shadow: 0 0 0 .5px rgba(255,255,255,.14) inset; }
+
+  .label { font-weight: 590; letter-spacing: -.01em; }
+  .shimmer {
+    background: linear-gradient(90deg, rgba(255,255,255,.45) 0%, #fff 40%, rgba(var(--c2),1) 50%, #fff 60%, rgba(255,255,255,.45) 100%);
+    background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: sweep 1.6s linear infinite;
+  }
+  @keyframes sweep { from { background-position: 125% 0; } to { background-position: -125% 0; } }
+  .sub { color: rgba(255,255,255,.5); font-weight: 500; }
+
+  .orb { width: 20px; height: 20px; border-radius: 50%; position: relative;
+    background: conic-gradient(from 0deg, rgb(var(--c1)), rgb(var(--c2)), rgb(var(--c3)), rgb(var(--c1)));
+    animation: spin 1.1s linear infinite; -webkit-mask: radial-gradient(circle, transparent 5.5px, #000 6.5px); mask: radial-gradient(circle, transparent 5.5px, #000 6.5px); }
+  @keyframes spin { to { transform: rotate(1turn); } }
+  .spark { width: 18px; height: 18px; animation: twinkle 1.2s ease-in-out infinite; }
+  @keyframes twinkle { 50% { transform: scale(.82) rotate(20deg); opacity: .75; } }
+
+  .check { width: 22px; height: 22px; border-radius: 50%; background: #30d158; display: grid; place-items: center; box-shadow: 0 0 14px rgba(48,209,88,.6); animation: pop .5s var(--spring); }
+  .check svg { width: 13px; height: 13px; }
+  .check path { stroke-dasharray: 20; stroke-dashoffset: 20; animation: draw .35s .12s ease-out forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes pop { from { transform: scale(.3); } }
+  .bang { width: 22px; height: 22px; border-radius: 50%; background: #ff453a; display: grid; place-items: center; font-weight: 800; font-size: 13px; color: white; animation: pop .5s var(--spring); }
+  .preview { overflow: hidden; text-overflow: ellipsis; max-width: 290px; flex: 1 1 auto !important; }
+  .warn { color: #ffd60a; }
+  .shake { animation: shake .45s cubic-bezier(.36,.07,.19,.97); }
+  @keyframes shake { 20%,60% { translate: -5px 0; } 40%,80% { translate: 5px 0; } }
+
+  .fade-in { animation: fadein .35s ease both; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(4px); filter: blur(3px); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pill, .aura { transition-duration: .01s !important; }
+    .shimmer, .orb, .rec, .spark { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="aura" id="aura"></div>
+    <div class="pill" id="pill">
+      <canvas id="wave"></canvas>
+      <div class="row" id="row"></div>
+    </div>
+  </div>
+
+<script>
+const pill = document.getElementById('pill');
+const row = document.getElementById('row');
+const aura = document.getElementById('aura');
+const canvas = document.getElementById('wave');
+const ctx = canvas.getContext('2d');
+
+let target = 0, level = 0, vel = 0, energy = 0;   // voice level (spring-smoothed)
+let mode = 'idle';                                  // drives the wave look
+let startedAt = 0, timerEl = null, hideTimer = null;
+
+const setW = w => pill.style.setProperty('--w', w + 'px');
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function show(width) {
+  clearTimeout(hideTimer);
+  pill.classList.remove('hide');
+  setW(width);
+  requestAnimationFrame(() => pill.classList.add('show'));
+}
+function hide(after = 0) {
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    pill.classList.add('hide'); pill.classList.remove('show');
+    aura.className = 'aura'; mode = 'idle'; setW(56);
+  }, after);
+}
+
+const sparkSVG = `<svg class="spark" viewBox="0 0 24 24"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="rgb(80,220,255)"/><stop offset=".5" stop-color="rgb(150,110,255)"/><stop offset="1" stop-color="rgb(255,90,190)"/></linearGradient></defs><path fill="url(#g)" d="M12 1.5c.5 4.6 2.4 8.3 9 10.5-6.6 2.2-8.5 5.9-9 10.5-.5-4.6-2.4-8.3-9-10.5 6.6-2.2 8.5-5.9 9-10.5Z"/></svg>`;
+
+function render(p) {
+  row.classList.remove('shake');
+  switch (p.phase) {
+    case 'listening': {
+      const fresh = mode !== 'listen';
+      mode = 'listen';
+      if (fresh) startedAt = performance.now();
+      row.innerHTML = `<span class="rec"></span>${p.hands_free ? '<span class="tag fade-in">Hands-free</span>' : ''}<span class="timer" id="timer">0:00</span>`;
+      timerEl = document.getElementById('timer');
+      canvas.style.opacity = 1;
+      aura.className = 'aura on';
+      show(p.hands_free ? 268 : 232);
+      break;
+    }
+    case 'transcribing':
+      mode = 'think'; target = 0;
+      canvas.style.opacity = .55;
+      row.innerHTML = `<span class="orb"></span><span class="label shimmer fade-in">Transcribing</span>`;
+      aura.className = 'aura on';
+      show(176);
+      break;
+    case 'rewriting':
+      mode = 'think';
+      canvas.style.opacity = .35;
+      row.innerHTML = `${sparkSVG}<span class="label shimmer fade-in">Polishing</span><span class="sub fade-in">with ${esc(p.detail || 'AI')}</span>`;
+      show(236);
+      break;
+    case 'done': {
+      mode = 'idle'; canvas.style.opacity = 0;
+      const t = (p.text || '').replace(/\s+/g, ' ').trim();
+      const short = t.length > 46 ? t.slice(0, 44) + '…' : t;
+      row.innerHTML = `<span class="check"><svg viewBox="0 0 14 14"><path d="M3 7.4 5.9 10 11 4" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` +
+        (p.detail ? `<span class="preview warn fade-in">${esc(p.detail)}</span>` : `<span class="preview fade-in">${esc(short)}</span>`);
+      aura.className = 'aura on ok';
+      show(Math.min(380, Math.max(150, 84 + Math.max(short.length, p.detail ? Math.min(p.detail.length, 48) : 0) * 7.1)));
+      hide(p.detail ? 4200 : 1500);
+      break;
+    }
+    case 'error':
+      mode = 'idle'; canvas.style.opacity = 0;
+      row.innerHTML = `<span class="bang">!</span><span class="preview fade-in">${esc(p.detail || 'Something went wrong')}</span>`;
+      aura.className = 'aura on err';
+      show(Math.min(400, 80 + (p.detail || '').length * 6.4));
+      void row.offsetWidth; row.classList.add('shake');
+      hide(4200);
+      break;
+    default: // idle
+      if (p.detail) {
+        mode = 'idle'; canvas.style.opacity = 0;
+        row.innerHTML = `<span class="sub fade-in" style="margin:auto">${esc(p.detail)}</span>`;
+        aura.className = 'aura';
+        show(170);
+        hide(1100);
+      } else hide();
+  }
+}
+
+// ── the waves: layered, glowing sine ribbons attenuated at the edges ──
+function resize() {
+  const r = pill.getBoundingClientRect(), d = devicePixelRatio || 1;
+  if (canvas.width !== Math.round(r.width * d)) { canvas.width = Math.round(r.width * d); canvas.height = Math.round(r.height * d); }
+}
+const ribbons = [
+  { c: 'var(--c1)', rgb: [80,220,255],  f: 1.6, s: 2.3, a: 1.0,  p: 0 },
+  { c: 'var(--c2)', rgb: [150,110,255], f: 2.2, s: -1.7, a: .85, p: 1.7 },
+  { c: 'var(--c3)', rgb: [255,90,190],  f: 1.15, s: 1.3, a: .7, p: 3.1 },
+  { c: 'w',         rgb: [255,255,255], f: 2.8, s: -2.9, a: .35, p: 4.4 },
+];
+let t0 = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - t0) / 1000); t0 = now;
+  // critically-damped-ish spring toward the mic level
+  const k = 220, damp = 22;
+  vel += ((target - level) * k - vel * damp) * dt;
+  level = Math.max(0, level + vel * dt);
+  energy += ((mode === 'listen' ? 1 : mode === 'think' ? .35 : 0) - energy) * Math.min(1, dt * 6);
+  aura.style.setProperty('--lvl', (level * energy).toFixed(3));
+
+  if (timerEl && mode === 'listen') {
+    const s = Math.floor((now - startedAt) / 1000);
+    timerEl.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  resize();
+  const W = canvas.width, H = canvas.height, d = devicePixelRatio || 1;
+  ctx.clearRect(0, 0, W, H);
+  if (energy > .01) {
+    const time = now / 1000;
+    const left = mode === 'listen' ? 30 * d : 0;           // leave room for the rec dot
+    const right = mode === 'listen' ? 52 * d : 0;          // and the timer
+    const span = W - left - right;
+    const amp = (mode === 'think' ? .10 + .06 * Math.sin(time * 3) : .08 + level * .92) * energy;
+    ctx.globalCompositeOperation = 'lighter';
+    for (const r of ribbons) {
+      const grad = ctx.createLinearGradient(left, 0, left + span, 0);
+      const [R, G, B] = r.rgb;
+      grad.addColorStop(0, `rgba(${R},${G},${B},0)`);
+      grad.addColorStop(.5, `rgba(${R},${G},${B},${.9 * r.a})`);
+      grad.addColorStop(1, `rgba(${R},${G},${B},0)`);
+      ctx.beginPath();
+      for (let i = 0; i <= 96; i++) {
+        const u = i / 96, x = left + u * span;
+        const xn = (u - .5) * 4;                              // -2..2
+        const att = Math.pow(4 / (4 + Math.pow(xn, 4)), 2);  // soft edges
+        const y = H / 2 + Math.sin(xn * r.f * Math.PI + time * r.s * (mode === 'think' ? 2.4 : 3.2) + r.p) * att * amp * H * .42 * r.a;
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+      // mirror back for a filled ribbon
+      for (let i = 96; i >= 0; i--) {
+        const u = i / 96, x = left + u * span, xn = (u - .5) * 4;
+        const att = Math.pow(4 / (4 + Math.pow(xn, 4)), 2);
+        const y = H / 2 - Math.sin(xn * r.f * Math.PI + time * r.s * (mode === 'think' ? 2.4 : 3.2) + r.p) * att * amp * H * .16 * r.a;
+        ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.shadowColor = `rgba(${R},${G},${B},.9)`;
+      ctx.shadowBlur = 10 * d;
+      ctx.globalAlpha = .55;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // bright core line (only while listening)
+    if (mode === 'listen') {
+    ctx.shadowBlur = 6 * d; ctx.shadowColor = 'rgba(255,255,255,.8)';
+    const core = ctx.createLinearGradient(left, 0, left + span, 0);
+    core.addColorStop(0, 'rgba(255,255,255,0)'); core.addColorStop(.5, `rgba(255,255,255,${.35 + level * .5})`); core.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = core; ctx.fillRect(left, H / 2 - .5 * d, span, 1 * d);
+    }
+    ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'source-over';
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ── wiring ──
+const T = window.__TAURI__;
+if (T) {
+  T.event.listen('phase', e => render(e.payload));
+  T.event.listen('level', e => { target = e.payload; });
+} else {
+  // browser preview: simulate a session
+  const demo = [['listening', 0], ['transcribing', 3800], ['rewriting', 4600], ['done', 5800]];
+  const loop = () => demo.forEach(([phase, at]) => setTimeout(() => render({ phase, detail: phase === 'rewriting' ? 'Claude' : null, text: 'Can you send me the report by Thursday? Thanks!' }), at));
+  loop(); setInterval(loop, 8000);
+  setInterval(() => { target = mode === 'listen' ? Math.max(0, Math.min(1, .35 + Math.sin(performance.now() / 260) * .3 + (Math.random() - .5) * .5)) : 0; }, 70);
+  document.body.style.background = '#2b2f3a';
+}
+</script>
+</body>
+</html>

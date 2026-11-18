@@ -1,0 +1,124 @@
+<p align="center"><img src="src-tauri/icons/icon.png" width="128" alt="Murmur icon"></p>
+
+<h1 align="center">Murmur</h1>
+<p align="center"><b>Hold a key. Talk. Polished text appears wherever you're typing.</b><br>
+For macOS and Windows. Uses the Claude or ChatGPT plan you already pay for.</p>
+
+---
+
+Murmur is a voice-dictation app. Hold **⌥ Space** (macOS) or **Ctrl + Shift + Space** (Windows), say what you mean,
+um's and all, and let go. Murmur turns your speech into text on your computer, has Claude or ChatGPT rewrite it into
+what you meant to type, and pastes it into the app you're in: Slack, Gmail, VS Code, Notes, anything.
+
+> "um so I was thinking we should meet on tuesday no wait wednesday at like three to talk about the launch"
+>
+> → **We should meet on Wednesday at 3 to talk about the launch.**
+
+## Why it's different
+
+- **No new subscription.** Murmur connects to your existing **Claude Pro/Max** plan through the official Claude Code
+  app, or your **ChatGPT Plus/Pro** plan through the official Codex app. Murmur never sees your password or tokens.
+  API keys and a no-AI mode are there too.
+- **Fast.** About **1 second** from letting go of the key to finished text, on an M4 MacBook (measured below).
+- **Private speech-to-text.** Your audio never leaves your computer. Whisper runs on-device, on the GPU on Apple Silicon.
+  Only the transcript text goes to the AI you chose.
+- **Tiny.** The installer is under 5 MB and the app about 10 MB, plus a one-time 75–550 MB voice model you choose.
+
+## Install
+
+1. Open the [**Releases**](../../releases/latest) page and download the installer:
+   - **macOS (Apple Silicon):** `Murmur_x.y.z_aarch64.dmg`. Open it and drag Murmur to Applications.
+     The first time you open it, **right-click Murmur → Open**, because the app isn't notarized by Apple yet.
+   - **Windows 10/11:** `Murmur_x.y.z_x64-setup.exe`. If SmartScreen warns you, click **More info → Run anyway**.
+2. A setup window walks you through the rest:
+   1. **Download the voice model** (142 MB, one time).
+   2. **Connect your AI.** Pick Claude or ChatGPT and click **Install**, then **Sign in**. Each opens a terminal
+      running the official installer or login, and Murmur notices automatically once you're signed in.
+   3. **macOS only: allow pasting.** Turn Murmur on under System Settings › Privacy & Security › Accessibility.
+      macOS asks for the microphone the first time you dictate.
+   4. **Try it** right in the window.
+
+## Using it
+
+| Do this | Result |
+|---|---|
+| **Hold** the shortcut, talk, release | Dictate a sentence or a paragraph |
+| **Tap** the shortcut once | Hands-free: keep talking, tap again to finish |
+| **Esc** while listening | Cancel |
+| Say "new paragraph", "new line", "comma", "question mark"… | Formatting, typed for you |
+
+A floating pill at the bottom of the screen shows live waves while you talk, then *Transcribing → Polishing → ✓*.
+Murmur lives in the menu bar (or the Windows system tray). From there you can open settings, start dictation, or quit.
+
+**Writing styles:** Clean (minimal edits), Polished (professional), Casual, Email, or Custom (describe your own).
+**Dictionary:** add names and jargon ("Kubernetes", "Priya") so they're always spelled right.
+**History:** every dictation is kept locally with the raw transcript next to the rewrite.
+
+## How it connects to your plan
+
+| Option | What Murmur runs | You pay |
+|---|---|---|
+| **Claude** (default) | `claude -p --model haiku` (Claude Code, signed in with your Claude account) | Nothing extra: counts toward your Pro/Max usage |
+| **ChatGPT** | `codex exec` (OpenAI Codex CLI, signed in with ChatGPT) | Nothing extra: counts toward your Plus/Pro usage |
+| Claude API / OpenAI API | Direct HTTPS with your key (stored in the system keychain) | Per-token API pricing |
+| No rewrite | Nothing | Free, offline |
+
+**The latency trick:** Murmur starts the CLI the moment you *press* the key, so its 3–5 s startup overlaps with you
+talking. It also takes Claude's answer the moment it arrives, without waiting ~1.3 s for the CLI to finish its
+bookkeeping. Rewrites are told to never *answer* what you dictated. "What's the capital of France?" gets typed,
+not answered, and so does "ignore previous instructions…".
+
+If the AI fails (signed out, usage limit hit, offline), Murmur pastes your raw transcript and says why. You never lose
+what you said.
+
+## Measured (Apple M4, base.en model, Claude Haiku via a Pro plan)
+
+| Clip | Whisper | Release → text pasted |
+|---|---|---|
+| 9.4 s, self-correction ("Tuesday, no wait, Wednesday") | 0.26 s | **0.85 s** |
+| 7.4 s, list | 0.24 s | **0.86 s** |
+| 1.6 s, question (must not be answered) | 0.16 s | **0.67 s** |
+| Prompt-injection attempt | 0.18 s | 0.75 s, typed verbatim ✓ |
+
+Reproduce with `cargo run --release --example e2e -- clip.wav claude clean` (the WAV can come from macOS `say`).
+
+## Build from source
+
+Requirements: Rust (stable), Node 18+, CMake. On Windows you also need the Visual Studio C++ build tools and LLVM.
+
+```bash
+npm install
+npx tauri dev          # run with hot reload
+npx tauri build        # .app + .dmg on macOS, setup .exe on Windows
+cd src-tauri && cargo test --release
+```
+
+Releases are built by GitHub Actions: pushing a tag like `v0.1.0` builds the macOS and Windows installers and attaches them
+to a GitHub Release (`.github/workflows/release.yml`). Every push runs tests, clippy and a release build on both macOS and
+Windows (`ci.yml`).
+
+### Project layout
+
+```
+src-tauri/src/
+  lib.rs       shortcut state machine (hold / tap-for-hands-free / esc), pipeline, windows, tray, commands
+  audio.rs     mic capture thread, live levels for the waves, 16 kHz resampling, silence gate, UI chimes
+  stt.rs       whisper.cpp (Metal on Apple Silicon), model catalog/download, hallucination filter
+  llm.rs       rewrite prompt + styles, Claude Code / Codex / API providers, pre-warming, output cleanup
+  cli.rs       finds the claude/codex CLIs (GUI apps get a bare PATH), login status, install/sign-in terminals
+  paste.rs     clipboard + ⌘V/Ctrl+V, clipboard restore, macOS Accessibility check
+ui/            overlay pill (canvas waves) and the settings / onboarding window. Plain HTML/CSS/JS, no build step
+```
+
+## Troubleshooting
+
+- **Nothing pastes (macOS):** enable Murmur under Privacy & Security › Accessibility. If you updated the app,
+  toggle it off and on again. Until then, Murmur copies the text to your clipboard instead.
+- **"Not signed in":** open Murmur › AI Rewrite and click **Sign in**, or run `claude auth login` / `codex login`.
+- **Shortcut does nothing:** another app may own it. Pick a different one under Shortcut.
+- **Intel Macs / Linux:** not in the prebuilt releases yet. Build from source.
+
+## License
+
+Apache-2.0. Speech recognition by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) with OpenAI Whisper models (MIT).
+Murmur is an independent project and is not affiliated with Anthropic or OpenAI.
