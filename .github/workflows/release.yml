@@ -18,7 +18,7 @@ jobs:
         include:
           - name: macOS Apple Silicon
             os: macos-latest
-            args: --target aarch64-apple-darwin
+            args: ""   # runner is Apple Silicon; an explicit --target breaks linking whisper.cpp (___isPlatformVersionAtLeast)
           - name: Windows x64
             os: windows-2022
             args: ""
@@ -29,8 +29,6 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
