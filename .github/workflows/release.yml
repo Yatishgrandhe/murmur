@@ -20,7 +20,7 @@ jobs:
             os: macos-latest
             args: --target aarch64-apple-darwin
           - name: Windows x64
-            os: windows-latest
+            os: windows-2022
             args: ""
     runs-on: ${{ matrix.os }}
     steps:
