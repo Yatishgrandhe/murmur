@@ -305,3 +305,115 @@ mod tests {
         assert!(has_speech(&tone));
     }
 }
+
+/// Decides when a hands-free take is over. Adapts to the mic: tracks the background-noise level and
+/// treats anything clearly above it as speech, so quiet voices and laptop mics work. Natural pauses
+/// between phrases don't end the take; only a longer pause after real speech does.
+pub struct EndOfSpeech {
+    floor: f32,
+    speech_ms: f32,
+    last_speech_ms: f32,
+    t_ms: f32,
+    fired: bool,
+}
+
+impl Default for EndOfSpeech {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl EndOfSpeech {
+    /// Pause after speech that ends the take.
+    pub const PAUSE_MS: f32 = 2200.0;
+    /// Speech needed before a pause can end the take (ignores coughs, clicks, the start chime).
+    pub const MIN_SPEECH_MS: f32 = 250.0;
+    /// Give up if nothing was said at all.
+    pub const NO_SPEECH_MS: f32 = 15_000.0;
+
+    pub fn new() -> Self {
+        EndOfSpeech { floor: f32::MAX, speech_ms: 0.0, last_speech_ms: 0.0, t_ms: 0.0, fired: false }
+    }
+
+    /// Feed one loudness sample (0..1) taken `dt_ms` after the previous one.
+    /// Returns Some(true) when the speaker has finished, Some(false) if they never spoke.
+    pub fn push(&mut self, level: f32, dt_ms: f32) -> Option<bool> {
+        if self.fired {
+            return None;
+        }
+        self.t_ms += dt_ms;
+        // noise floor: follows quiet moments immediately, rises only very slowly
+        if level < self.floor {
+            self.floor = level;
+        } else {
+            self.floor += (level - self.floor) * 0.002;
+        }
+        let threshold = (self.floor + 0.12).max(0.12);
+        if level > threshold {
+            self.speech_ms += dt_ms;
+            self.last_speech_ms = self.t_ms;
+        }
+        let spoke = self.speech_ms >= Self::MIN_SPEECH_MS;
+        let result = if spoke && self.t_ms - self.last_speech_ms >= Self::PAUSE_MS {
+            Some(true)
+        } else if !spoke && self.t_ms >= Self::NO_SPEECH_MS {
+            Some(false)
+        } else {
+            None
+        };
+        self.fired = result.is_some();
+        result
+    }
+}
+
+#[cfg(test)]
+mod eos_tests {
+    use super::EndOfSpeech;
+
+    fn run(levels: &[(f32, u32)]) -> Option<(bool, f32)> {
+        let mut e = EndOfSpeech::new();
+        let mut t = 0.0;
+        for &(level, ms) in levels {
+            for _ in 0..(ms / 33) {
+                t += 33.0;
+                if let Some(r) = e.push(level, 33.0) {
+                    return Some((r, t));
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn quiet_voice_with_pauses_is_not_cut_off() {
+        // real MacBook Air levels: quiet speech ≈ 0.25–0.35, room ≈ 0.02, 0.9 s and 1.6 s gaps between phrases
+        let r = run(&[(0.02, 400), (0.3, 1500), (0.03, 900), (0.26, 1200), (0.02, 1600), (0.33, 1000), (0.02, 1500)]);
+        assert_eq!(r, None, "stopped while the user was still mid-thought");
+    }
+
+    #[test]
+    fn stops_after_a_real_pause() {
+        let (spoke, t) = run(&[(0.02, 300), (0.3, 2000), (0.02, 4000)]).unwrap();
+        assert!(spoke);
+        assert!((4400.0..4700.0).contains(&t), "fired at {t} ms");
+    }
+
+    #[test]
+    fn loud_room_still_works() {
+        // noisy café: floor 0.25, speech 0.5
+        let (spoke, _) = run(&[(0.25, 500), (0.5, 1500), (0.25, 3000)]).unwrap();
+        assert!(spoke);
+    }
+
+    #[test]
+    fn silence_gives_up() {
+        let (spoke, t) = run(&[(0.01, 20_000)]).unwrap();
+        assert!(!spoke && t >= 15_000.0);
+    }
+
+    #[test]
+    fn a_click_is_not_speech() {
+        let r = run(&[(0.02, 300), (0.6, 99), (0.02, 6000)]);
+        assert_eq!(r, None);
+    }
+}

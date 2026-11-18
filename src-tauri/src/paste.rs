@@ -11,7 +11,8 @@ pub fn paste(text: &str, restore: bool) -> Result<(), String> {
     std::thread::sleep(Duration::from_millis(30));
     press_paste()?;
     if let Some(prev) = previous {
-        std::thread::sleep(Duration::from_millis(350));
+        // Chrome/Electron read the pasteboard asynchronously; give them time before restoring
+        std::thread::sleep(Duration::from_millis(500));
         let _ = cb.set_text(prev);
     }
     Ok(())
@@ -29,7 +30,9 @@ fn press_paste() -> Result<(), String> {
     r
 }
 
-/// macOS needs Accessibility permission to send the paste keystroke.
+/// macOS needs permission to send the paste keystroke. Posting key events is its own check
+/// (PostEvent, granted through the Accessibility list); on some macOS versions it and
+/// AXIsProcessTrusted disagree, so either one is enough.
 pub fn accessibility_ok() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -37,7 +40,11 @@ pub fn accessibility_ok() -> bool {
         extern "C" {
             fn AXIsProcessTrusted() -> bool;
         }
-        unsafe { AXIsProcessTrusted() }
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGPreflightPostEventAccess() -> bool;
+        }
+        unsafe { CGPreflightPostEventAccess() || AXIsProcessTrusted() }
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -59,7 +66,14 @@ pub fn request_accessibility() -> bool {
             static kAXTrustedCheckOptionPrompt: CFStringRef;
             fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
         }
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGRequestPostEventAccess() -> bool;
+        }
         unsafe {
+            if CGRequestPostEventAccess() {
+                return true;
+            }
             let key = CFString::wrap_under_get_rule(kAXTrustedCheckOptionPrompt);
             let opts = CFDictionary::from_CFType_pairs(&[(key, CFBoolean::true_value())]);
             AXIsProcessTrustedWithOptions(opts.as_concrete_TypeRef())

@@ -130,29 +130,18 @@ fn begin(app: &AppHandle, c: &Arc<Core>, hands_free: bool) {
         audio::blip(audio::Blip::Start);
     }
     let (a2, c2) = (app.clone(), c.clone());
-    // (speech heard yet, last time it was loud, when listening started)
-    let vad = Arc::new(Mutex::new((false, Instant::now(), Instant::now())));
+    let vad = Arc::new(Mutex::new((audio::EndOfSpeech::new(), Instant::now())));
     let on_level = move |level: f32| {
         let _ = a2.emit_to("overlay", "level", level);
-        // Hands-free: stop by itself once you've spoken and then gone quiet.
+        // Hands-free: stop by itself once you've spoken and then paused.
         if *c2.mode.lock() != Mode::HandsFree {
             return;
         }
         let mut v = vad.lock();
-        let now = Instant::now();
-        if level > SPEECH_LEVEL {
-            v.0 = true;
-            v.1 = now;
-        }
-        let trigger = if v.0 && now.duration_since(v.1) > END_OF_SPEECH {
-            Some(true)
-        } else if !v.0 && now.duration_since(v.2) > NO_SPEECH_TIMEOUT {
-            Some(false)
-        } else {
-            None
-        };
+        let dt = v.1.elapsed().as_secs_f32() * 1000.0;
+        v.1 = Instant::now();
+        let trigger = v.0.push(level, dt);
         if let Some(spoke) = trigger {
-            *v = (false, now, now + Duration::from_secs(3600)); // fire once
             let (a3, c3) = (a2.clone(), c2.clone());
             std::thread::spawn(move || {
                 report("auto_stop", serde_json::json!({"spoke": spoke}));
@@ -199,11 +188,6 @@ fn finish(app: &AppHandle, c: &Arc<Core>) {
         *c.mode.lock() = Mode::Idle;
     });
 }
-
-/// Loudness (0..1, see audio::loudness) that counts as speech, and the pauses that end a hands-free take.
-const SPEECH_LEVEL: f32 = 0.38;
-const END_OF_SPEECH: Duration = Duration::from_millis(1400);
-const NO_SPEECH_TIMEOUT: Duration = Duration::from_secs(12);
 
 fn cancel(app: &AppHandle) {
     cancel_with(app, "Cancelled");
@@ -428,6 +412,45 @@ fn run_selftest(app: AppHandle, c: Arc<Core>, wav: String) {
 
 // ───────────────────────────── windows ─────────────────────────────
 
+/// Lets the pill float over other apps' full-screen Spaces and every desktop, without taking focus.
+/// (tao's alwaysOnTop uses the floating level, which can't draw over full-screen apps.)
+#[cfg(target_os = "macos")]
+fn raise_overlay(w: &tauri::WebviewWindow) {
+    use objc2::{msg_send, runtime::AnyObject};
+    const CAN_JOIN_ALL_SPACES: usize = 1 << 0;
+    const MOVE_TO_ACTIVE_SPACE: usize = 1 << 1;
+    const MANAGED: usize = 1 << 2;
+    const STATIONARY: usize = 1 << 4;
+    const IGNORES_CYCLE: usize = 1 << 6;
+    const FULLSCREEN_PRIMARY: usize = 1 << 7;
+    const FULLSCREEN_AUXILIARY: usize = 1 << 8;
+    const FULLSCREEN_NONE: usize = 1 << 9;
+    const STATUS_WINDOW_LEVEL: isize = 25;
+    let w2 = w.clone();
+    let _ = w.run_on_main_thread(move || {
+        let Ok(ptr) = w2.ns_window() else { return };
+        // SAFETY: Tauri owns this live NSWindow and we're on the main thread.
+        let ns = unsafe { &*(ptr as *mut AnyObject) };
+        unsafe {
+            let cur: usize = msg_send![ns, collectionBehavior];
+            let next = (cur & !(MOVE_TO_ACTIVE_SPACE | MANAGED | FULLSCREEN_PRIMARY | FULLSCREEN_NONE))
+                | CAN_JOIN_ALL_SPACES
+                | STATIONARY
+                | IGNORES_CYCLE
+                | FULLSCREEN_AUXILIARY;
+            let _: () = msg_send![ns, setCollectionBehavior: next];
+            let _: () = msg_send![ns, setLevel: STATUS_WINDOW_LEVEL];
+            let _: () = msg_send![ns, setHidesOnDeactivate: false];
+            let _: () = msg_send![ns, orderFrontRegardless];
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn raise_overlay(w: &tauri::WebviewWindow) {
+    let _ = w.set_always_on_top(true);
+}
+
 fn position_overlay(app: &AppHandle) {
     let Some(w) = app.get_webview_window("overlay") else { return };
     let cursor = app.cursor_position().ok();
@@ -446,6 +469,7 @@ fn position_overlay(app: &AppHandle) {
     let x = pos.x + (sz.width as i32 - size.width as i32) / 2;
     let y = pos.y + sz.height as i32 - size.height as i32 - (64.0 * scale) as i32;
     let _ = w.set_position(PhysicalPosition::new(x, y));
+    raise_overlay(&w);
 }
 
 fn show_main(app: &AppHandle, section: Option<&str>) {
