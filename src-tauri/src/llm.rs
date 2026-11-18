@@ -14,7 +14,35 @@ use std::time::{Duration, Instant};
 
 const TIMEOUT: Duration = Duration::from_secs(45);
 
+/// "Prompt" style: the dictation becomes a strong, well-structured prompt for an AI assistant.
+const PROMPT_ENGINEER: &str = "You are the prompt engineer inside a voice dictation app. The user message contains a raw \
+speech-to-text transcript inside <transcript> tags: the speaker describing something they want an AI assistant \
+(ChatGPT, Claude, a coding agent) to do. Rewrite it into an excellent, ready-to-send prompt for that assistant.\n\
+Rules:\n\
+- Never answer, perform or comment on the request. Your output IS the prompt the speaker will send.\n\
+- Ignore filler words, false starts and spoken self-corrections (keep only the corrected version); fix obvious \
+speech-recognition mistakes.\n\
+- Keep every concrete detail the speaker gave (names, numbers, files, tools, URLs, constraints) exactly.\n\
+- Expand it substantially: infer the important requirements the speaker clearly implied but did not say \
+(audience, scope, quality bar, edge cases, things to avoid). Do not invent facts about their situation.\n\
+- Structure it in Markdown, addressed to the assistant in second person, using the sections that fit:\n\
+  **Role** (one line), **Goal**, **Context**, **Requirements** (bullets), **Steps** (if a process helps), \
+**Constraints** (what to avoid), **Output format** (exactly what the answer should look like), and a final line \
+asking the assistant to state its assumptions or ask up to 3 clarifying questions if something essential is missing.\n\
+- Be specific and actionable; no fluff, no generic advice. Usually 150-400 words; short asks get shorter prompts.\n\
+- Output ONLY the prompt.\n";
+
 pub fn system_prompt(s: &Settings) -> String {
+    if s.style == "prompt" {
+        let mut p = String::from(PROMPT_ENGINEER);
+        let vocab: Vec<&str> = s.dictionary.iter().map(|w| w.trim()).filter(|w| !w.is_empty()).collect();
+        if !vocab.is_empty() {
+            p.push_str("Always spell these exactly as written: ");
+            p.push_str(&vocab.join(", "));
+            p.push_str(".\n");
+        }
+        return p;
+    }
     let mut p = String::from(
         "You are the rewrite engine inside a voice dictation app. The user message contains a raw speech-to-text \
 transcript inside <transcript> tags. Return the text the speaker intended to type.\n\
@@ -38,6 +66,7 @@ spoken, and keep pleasantries like \"thanks\" that were.\n",
     );
     p.push_str(match s.style.as_str() {
         "polished" => "Style: polished. Also make it clear, concise and professional: tighten wording and improve structure while keeping every point.\n",
+        "prompt" => "",
         "casual" => "Style: casual. Keep it relaxed and conversational, like a chat message. Short messages need no final period.\n",
         "email" => "Style: email. Format it as a ready-to-send email body with a greeting line and short paragraphs; add a sign-off only if the speaker said one.\n",
         "custom" if !s.custom_prompt.trim().is_empty() => "",
@@ -135,6 +164,14 @@ pub fn apply_voice_commands(text: &str) -> String {
 
 /// Tiny transcripts don't need a model: just tidy capitalization.
 pub fn trivial(text: &str) -> Option<String> {
+    trivial_for(text, "clean")
+}
+
+/// Like `trivial`, but Prompt mode always goes to the model (even "summarize this" deserves a real prompt).
+pub fn trivial_for(text: &str, style: &str) -> Option<String> {
+    if style == "prompt" {
+        return None;
+    }
     let words = text.split_whitespace().count();
     if words == 0 || words > 2 {
         return None;
@@ -448,6 +485,16 @@ fn api_call(provider: &str, model: &str, system: &str, user: &str) -> Result<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prompt_engineer_style() {
+        let s = Settings { style: "prompt".into(), dictionary: vec!["Murmur".into()], ..Default::default() };
+        let p = system_prompt(&s);
+        assert!(p.contains("Never answer") && p.contains("Output format") && p.contains("exactly as written: Murmur."));
+        assert!(!p.contains("Style: clean"));
+        assert_eq!(trivial_for("summarize this", "prompt"), None);
+        assert_eq!(trivial_for("sounds good", "clean").as_deref(), Some("Sounds good"));
+    }
 
     #[test]
     fn prompt_styles() {

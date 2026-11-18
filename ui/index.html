@@ -65,9 +65,14 @@
             <button data-v="polished">Polished</button>
             <button data-v="casual">Casual</button>
             <button data-v="email">Email</button>
+            <button data-v="prompt">✦ Prompt</button>
             <button data-v="custom">Custom</button>
           </div>
           <p class="muted" id="styleDesc"></p>
+          <div class="prompt-demo hidden" id="promptDemo" aria-label="Prompt mode example">
+            <div class="prompt-demo-line"><span class="prompt-demo-k">You say</span><span>“research the top articles on context engineering for my team”</span></div>
+            <div class="prompt-demo-line"><span class="prompt-demo-k">Murmur writes</span><span class="prompt-demo-tags"><b>Role</b><b>Goal</b><b>Requirements</b><b>Output format</b></span></div>
+          </div>
           <textarea id="customPrompt" class="field hidden" rows="3" placeholder="e.g. Write like a friendly product manager. Use British spelling."></textarea>
         </div>
         <div class="card">

@@ -83,7 +83,7 @@
   @keyframes draw { to { stroke-dashoffset: 0; } }
   @keyframes pop { from { transform: scale(.3); } }
   .bang { width: 22px; height: 22px; border-radius: 50%; background: #ff453a; display: grid; place-items: center; font-weight: 800; font-size: 13px; color: white; animation: pop .5s var(--spring); }
-  .preview { overflow: hidden; text-overflow: ellipsis; max-width: 290px; flex: 1 1 auto !important; }
+  .preview { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto !important; }
   .warn { color: #ffd60a; }
   .shake { animation: shake .45s cubic-bezier(.36,.07,.19,.97); }
   @keyframes shake { 20%,60% { translate: -5px 0; } 40%,80% { translate: 5px 0; } }
@@ -116,19 +116,34 @@ const ctx = canvas.getContext('2d');
 let target = 0, level = 0, vel = 0, energy = 0;   // voice level (spring-smoothed)
 let mode = 'idle';                                  // drives the wave look
 let startedAt = 0, timerEl = null, hideTimer = null, handsFree = false;
+let gen = 0;                                        // bumped on every render; stale timers check it and bail
 
 const setW = w => pill.style.setProperty('--w', w + 'px');
 const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// Width the pill needs for the row's current content. The row is temporarily sized to max-content so
+// its natural width (content + 18px side padding) is measured. offsetWidth is layout-only, so it is not
+// skewed by the pill's hidden-state scale transform (getBoundingClientRect would be).
+const MIN_W = 150, MAX_W = 420;
+function fitWidth() {
+  row.style.width = 'max-content';
+  const need = row.offsetWidth;
+  row.style.width = '';
+  return Math.min(MAX_W, Math.max(MIN_W, need));
+}
 
 function show(width) {
   clearTimeout(hideTimer);
   pill.classList.remove('hide');
   setW(width);
-  requestAnimationFrame(() => pill.classList.add('show'));
+  const g = gen;
+  requestAnimationFrame(() => { if (g === gen) pill.classList.add('show'); });
 }
 function hide(after = 0) {
   clearTimeout(hideTimer);
+  const g = gen;
   hideTimer = setTimeout(() => {
+    if (g !== gen) return;                          // a newer render owns the pill now
     pill.classList.add('hide'); pill.classList.remove('show');
     aura.className = 'aura'; mode = 'idle'; setW(56);
   }, after);
@@ -137,6 +152,7 @@ function hide(after = 0) {
 const sparkSVG = `<svg class="spark" viewBox="0 0 24 24"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="rgb(80,220,255)"/><stop offset=".5" stop-color="rgb(150,110,255)"/><stop offset="1" stop-color="rgb(255,90,190)"/></linearGradient></defs><path fill="url(#g)" d="M12 1.5c.5 4.6 2.4 8.3 9 10.5-6.6 2.2-8.5 5.9-9 10.5-.5-4.6-2.4-8.3-9-10.5 6.6-2.2 8.5-5.9 9-10.5Z"/></svg>`;
 
 function render(p) {
+  gen++;
   row.classList.remove('shake');
   switch (p.phase) {
     case 'listening': {
@@ -157,13 +173,14 @@ function render(p) {
       canvas.style.opacity = .55;
       row.innerHTML = `<span class="orb"></span><span class="label shimmer fade-in">Transcribing</span>`;
       aura.className = 'aura on';
-      show(176);
+      show(fitWidth());
       break;
     case 'rewriting':
       mode = 'think';
       canvas.style.opacity = .35;
-      row.innerHTML = `${sparkSVG}<span class="label shimmer fade-in">Polishing</span><span class="sub fade-in">with ${esc(p.detail || 'AI')}</span>`;
-      show(236);
+      const isPrompt = (p.detail || '').startsWith('prompt:'), who = isPrompt ? p.detail.slice(7) : (p.detail || 'AI');
+      row.innerHTML = `${sparkSVG}<span class="label shimmer fade-in">${isPrompt ? 'Writing prompt' : 'Polishing'}</span><span class="sub fade-in">with ${esc(who)}</span>`;
+      show(fitWidth());
       break;
     case 'done': {
       mode = 'idle'; canvas.style.opacity = 0;
@@ -174,7 +191,7 @@ function render(p) {
         (warn ? `<span class="preview warn fade-in">${esc(p.detail)}</span>` : `<span class="preview fade-in">${esc(short)}</span>`) +
         (copied ? `<span class="tag fade-in">⌘V to paste</span>` : '');
       aura.className = 'aura on ok';
-      show(Math.min(430, Math.max(150, 84 + (copied ? 104 : 0) + Math.max(short.length, warn ? Math.min(p.detail.length, 48) : 0) * 7.1)));
+      show(fitWidth());
       hide(warn ? 4200 : copied ? 5500 : 1500);
       break;
     }
@@ -182,16 +199,16 @@ function render(p) {
       mode = 'idle'; canvas.style.opacity = 0;
       row.innerHTML = `<span class="bang">!</span><span class="preview fade-in">${esc(p.detail || 'Something went wrong')}</span>`;
       aura.className = 'aura on err';
-      show(Math.min(400, 80 + (p.detail || '').length * 6.4));
+      show(fitWidth());
       void row.offsetWidth; row.classList.add('shake');
       hide(4200);
       break;
     default: // idle
       if (p.detail) {
         mode = 'idle'; canvas.style.opacity = 0;
-        row.innerHTML = `<span class="sub fade-in" style="margin:auto">${esc(p.detail)}</span>`;
+        row.innerHTML = `<span class="preview sub fade-in" style="text-align:center">${esc(p.detail)}</span>`;
         aura.className = 'aura';
-        show(170);
+        show(fitWidth());
         hide(1100);
       } else hide();
   }

@@ -199,11 +199,13 @@ const STYLE_DESC = {
   polished: 'Clear, concise and professional. Tightens wording while keeping every point.',
   casual: 'Relaxed, like a text to a friend.',
   email: 'Turns what you say into a ready-to-send email.',
+  prompt: 'Prompt mode: describe what you want from an AI, and Murmur writes a full, structured prompt with the goal, context, key requirements, constraints and output format. Also in the menu bar.',
   custom: 'Describe exactly how you want your text to read.',
 };
 function renderStyle() {
   $$('#styles button').forEach(b => b.classList.toggle('on', b.dataset.v === st.settings.style));
   $('#styleDesc').textContent = STYLE_DESC[st.settings.style] || '';
+  $('#promptDemo').classList.toggle('hidden', st.settings.style !== 'prompt');
   $('#customPrompt').classList.toggle('hidden', st.settings.style !== 'custom');
   $('#customPrompt').value = st.settings.custom_prompt;
 }
@@ -325,6 +327,7 @@ listen('phase', p => {
 });
 listen('history-changed', async () => { const s = await invoke('get_state'); st.history = s.history; renderHome(); renderHistory(); });
 listen('navigate', s => go(s));
+listen('settings-changed', async () => { const s = await invoke('get_state'); st.settings = s.settings; renderStyle(); });
 window.addEventListener('focus', () => { if (st) refreshProviders(); });
 
 // ───────── waves (hero + onboarding) ─────────

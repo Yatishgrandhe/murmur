@@ -19,7 +19,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
@@ -265,13 +265,13 @@ fn pipeline(app: &AppHandle, c: &Arc<Core>, sess: Session) {
             used = "off".into();
             raw.clone()
         }
-        Ok(p) => match llm::trivial(&raw) {
+        Ok(p) => match llm::trivial_for(&raw, &s.style) {
             Some(t) => {
                 p.cancel();
                 t
             }
             None => {
-                emit_phase(app, "rewriting", Some(raw.clone()), Some(llm::provider_label(&s.provider).into()), false);
+                emit_phase(app, "rewriting", Some(raw.clone()), Some(if s.style == "prompt" { format!("prompt:{}", llm::provider_label(&s.provider)) } else { llm::provider_label(&s.provider).into() }), false);
                 p.finish(&raw).unwrap_or_else(|e| {
                     warning = Some(e);
                     used = "off".into();
@@ -425,7 +425,8 @@ fn raise_overlay(w: &tauri::WebviewWindow) {
     const FULLSCREEN_PRIMARY: usize = 1 << 7;
     const FULLSCREEN_AUXILIARY: usize = 1 << 8;
     const FULLSCREEN_NONE: usize = 1 << 9;
-    const STATUS_WINDOW_LEVEL: isize = 25;
+    // screen-saver level: what Electron uses for overlays that must show over full-screen apps
+    const OVERLAY_LEVEL: isize = 1000;
     let w2 = w.clone();
     let _ = w.run_on_main_thread(move || {
         let Ok(ptr) = w2.ns_window() else { return };
@@ -439,11 +440,61 @@ fn raise_overlay(w: &tauri::WebviewWindow) {
                 | IGNORES_CYCLE
                 | FULLSCREEN_AUXILIARY;
             let _: () = msg_send![ns, setCollectionBehavior: next];
-            let _: () = msg_send![ns, setLevel: STATUS_WINDOW_LEVEL];
+            let _: () = msg_send![ns, setLevel: OVERLAY_LEVEL];
             let _: () = msg_send![ns, setHidesOnDeactivate: false];
             let _: () = msg_send![ns, orderFrontRegardless];
         }
     });
+}
+
+/// Turns the pill's NSWindow into a non-activating NSPanel. macOS only lets this kind of window
+/// (as used by Raycast, Loom, Wispr Flow) sit on top of other apps' native full-screen Spaces;
+/// a plain NSWindow stays on the normal desktop no matter its level or collection behavior.
+/// Done by giving the existing window an NSPanel subclass (no instance variables of its own).
+#[cfg(target_os = "macos")]
+fn make_panel(w: &tauri::WebviewWindow) {
+    use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
+    use objc2::{msg_send, sel};
+    extern "C" {
+        fn object_setClass(obj: *mut AnyObject, cls: *const AnyClass) -> *const AnyClass;
+        fn object_getClass(obj: *const AnyObject) -> *const AnyClass;
+        fn class_getInstanceSize(cls: *const AnyClass) -> usize;
+    }
+    extern "C" fn no(_: *mut AnyObject, _: Sel) -> Bool {
+        Bool::NO
+    }
+    const NONACTIVATING_PANEL: usize = 1 << 7; // NSWindowStyleMaskNonactivatingPanel
+    let w2 = w.clone();
+    let _ = w.run_on_main_thread(move || {
+        let Ok(ptr) = w2.ns_window() else { return };
+        let ns = ptr as *mut AnyObject;
+        let Some(panel_base) = AnyClass::get(c"NSPanel") else { return };
+        let cls = AnyClass::get(c"MurmurOverlayPanel").unwrap_or_else(|| {
+            let mut b = ClassBuilder::new(c"MurmurOverlayPanel", panel_base).expect("declare panel class");
+            unsafe {
+                b.add_method(sel!(canBecomeKeyWindow), no as extern "C" fn(*mut AnyObject, Sel) -> Bool);
+                b.add_method(sel!(canBecomeMainWindow), no as extern "C" fn(*mut AnyObject, Sel) -> Bool);
+            }
+            b.register()
+        });
+        unsafe {
+            // Only swap if the current window class keeps no extra per-instance data
+            // (otherwise code reading it after the swap could crash).
+            let current = object_getClass(ns);
+            let (cur_size, panel_size) = (class_getInstanceSize(current), class_getInstanceSize(cls));
+            if cur_size > panel_size {
+                report("panel", serde_json::json!({"converted": false, "current_size": cur_size, "panel_size": panel_size}));
+                return;
+            }
+            object_setClass(ns, cls);
+            let style: usize = msg_send![&*ns, styleMask];
+            let _: () = msg_send![&*ns, setStyleMask: style | NONACTIVATING_PANEL];
+            let _: () = msg_send![&*ns, setFloatingPanel: true];
+            let _: () = msg_send![&*ns, setBecomesKeyOnlyIfNeeded: true];
+        }
+        report("panel", serde_json::json!({"converted": true}));
+    });
+    raise_overlay(w);
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -473,8 +524,8 @@ fn position_overlay(app: &AppHandle) {
 }
 
 fn show_main(app: &AppHandle, section: Option<&str>) {
-    #[cfg(target_os = "macos")]
-    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    // Stay an accessory (menu-bar) app even with this window open: macOS only lets accessory
+    // apps put windows over other apps' full-screen Spaces, which the dictation pill needs.
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -799,6 +850,8 @@ pub fn run() {
             if let Some(ov) = app.get_webview_window("overlay") {
                 // stays up but invisible & click-through; content animates in on demand
                 let _ = ov.set_ignore_cursor_events(true);
+                #[cfg(target_os = "macos")]
+                make_panel(&ov);
                 let _ = ov.show();
                 position_overlay(&handle);
             }
@@ -823,8 +876,11 @@ pub fn run() {
             let open = MenuItem::with_id(app, "open", "Open Murmur…", true, None::<&str>)?;
             let dictate = MenuItem::with_id(app, "dictate", "Start Dictation", true, None::<&str>)?;
             let history = MenuItem::with_id(app, "history", "History", true, None::<&str>)?;
+            let prompt_on = state.settings.lock().style == "prompt";
+            let prompt_mode = CheckMenuItem::with_id(app, "prompt", "Prompt Mode: turn speech into AI prompts", true, prompt_on, None::<&str>)?;
+            let prompt_item = prompt_mode.clone();
             let quit = MenuItem::with_id(app, "quit", "Quit Murmur", true, Some("CmdOrCtrl+Q"))?;
-            let menu = Menu::with_items(app, &[&dictate, &PredefinedMenuItem::separator(app)?, &open, &history, &PredefinedMenuItem::separator(app)?, &quit])?;
+            let menu = Menu::with_items(app, &[&dictate, &prompt_mode, &PredefinedMenuItem::separator(app)?, &open, &history, &PredefinedMenuItem::separator(app)?, &quit])?;
             TrayIconBuilder::with_id("murmur")
                 // macOS: monochrome template that adapts to the menu bar; elsewhere: the color icon
                 .icon(tauri::image::Image::from_bytes(if cfg!(target_os = "macos") {
@@ -836,7 +892,16 @@ pub fn run() {
                 .tooltip("Murmur")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
-                .on_menu_event(|app, e| match e.id.as_ref() {
+                .on_menu_event(move |app, e| match e.id.as_ref() {
+                    "prompt" => {
+                        let c = core(app);
+                        let mut s = c.settings.lock();
+                        s.style = if s.style == "prompt" { "clean".into() } else { "prompt".into() };
+                        let _ = prompt_item.set_checked(s.style == "prompt");
+                        settings::save(&settings_path(), &*s);
+                        drop(s);
+                        let _ = app.emit("settings-changed", ());
+                    }
                     "open" => show_main(app, None),
                     "history" => show_main(app, Some("history")),
                     "dictate" => {
