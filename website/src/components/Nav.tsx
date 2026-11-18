@@ -18,7 +18,7 @@ export function Nav({ os }: { os: OS }) {
           <a href="#privacy">Privacy</a>
           <a href="#install">Install</a>
         </nav>
-        <a className="btn btn--sm btn--primary" href={os === 'windows' ? exe.url : '#install'}>Download</a>
+        <a className="btn btn--sm btn--primary" href={os === 'windows' ? exe.url : exe.dmg?.url ?? '#install'}>Download</a>
       </div>
     </header>
   );

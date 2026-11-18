@@ -20,18 +20,22 @@ export const shortcutText = (os: OS) => (os === 'mac' ? '⌥ Space' : 'Ctrl + Sh
 
 
 /* ---------- Latest Windows installer, looked up from GitHub Releases ---------- */
-export type Installer = { url: string; size: string; tag: string };
-export const FALLBACK_INSTALLER: Installer = { url: WIN_EXE, size: '3.6 MB', tag: 'v0.1.0' };
+export type MacDownload = { url: string; size: string };
+export type Installer = { url: string; size: string; tag: string; dmg: MacDownload | null };
+export const FALLBACK_INSTALLER: Installer = { url: WIN_EXE, size: '3.6 MB', tag: 'v0.1.0', dmg: null };
+const mb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`;
 
 let pending: Promise<Installer> | null = null;
-/** One request per page load; falls back to the pinned v0.1.0 installer if GitHub can't be reached. */
+/** One request per page load; falls back to the pinned v0.1.0 installer (and no Mac download) if GitHub can't be reached. */
 export function latestInstaller(): Promise<Installer> {
   pending ??= fetch('https://api.github.com/repos/Yatishgrandhe/murmur/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
     .then((rel: { tag_name: string; assets: { name: string; size: number; browser_download_url: string }[] }) => {
       const exe = rel.assets.find((a) => /x64-setup\.exe$/i.test(a.name));
-      if (!exe) return FALLBACK_INSTALLER;
-      return { url: exe.browser_download_url, size: `${(exe.size / 1048576).toFixed(1)} MB`, tag: rel.tag_name };
+      const dmg = rel.assets.find((a) => /aarch64\.dmg$/i.test(a.name));
+      const mac = dmg ? { url: dmg.browser_download_url, size: mb(dmg.size) } : null;
+      if (!exe) return { ...FALLBACK_INSTALLER, dmg: mac };
+      return { url: exe.browser_download_url, size: mb(exe.size), tag: rel.tag_name, dmg: mac };
     })
     .catch(() => FALLBACK_INSTALLER);
   return pending;

@@ -53,7 +53,7 @@ export function DownloadButtons({ os, tone = 'dark', size = 'lg' }: { os: OS; to
   const exe = useInstaller();
   const cls = (mine: boolean) => `btn btn--${size} ${mine ? 'btn--primary' : `btn--secondary btn--on-${tone}`}`;
   const mac = (
-    <a key="mac" href="#install" className={cls(os === 'mac')}>
+    <a key="mac" href={exe.dmg?.url ?? '#install'} className={cls(os === 'mac')}>
       <AppleGlyph size={16} /> Get it for Mac
     </a>
   );

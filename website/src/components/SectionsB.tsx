@@ -169,7 +169,7 @@ export function Install({ os: detected }: { os: OS }) {
       <div className="wrap install-inner">
         <div className="install-head">
           <h2>Install it</h2>
-          <p className="body">{mac ? 'There’s no Mac download yet, so you build it. Three commands, a few minutes.' : 'Run the installer, or build it yourself with three commands.'}</p>
+          <p className="body">{mac ? (exe.dmg ? 'Download the app for Apple Silicon Macs, or build it yourself with three commands.' : 'There’s no Mac download yet, so you build it. Three commands, a few minutes.') : 'Run the installer, or build it yourself with three commands.'}</p>
         </div>
         <div className="install-main">
           <Segmented label="Operating system" value={os} onChange={setOs} options={[{ id: 'mac', label: 'macOS' }, { id: 'windows', label: 'Windows' }]} />
@@ -199,7 +199,7 @@ export function Install({ os: detected }: { os: OS }) {
               <dl className="install-facts">
                 <div><dt>You need</dt><dd>{mac ? 'Rust, Node.js and the Xcode command-line tools' : 'Rust, Node.js, VS C++ build tools, CMake, LLVM, WebView2'}</dd></div>
                 <div><dt>Allow</dt><dd>{mac ? 'Microphone, and Accessibility so it can paste' : 'Microphone, under Settings › Privacy'}</dd></div>
-                <div><dt>Then</dt><dd>{mac ? <>Hold <b>⌥ Space</b> and talk</> : <>Hold <b>Ctrl + Shift + Space</b> and talk. Or skip building: <a className="link" href={exe.url}>get the {exe.tag} installer, {exe.size} ›</a></>}</dd></div>
+                <div><dt>Then</dt><dd>{mac ? <>Hold <b>⌥ Space</b> and talk.{exe.dmg && <> Or skip building: <a className="link" href={exe.dmg.url}>get the {exe.tag} .dmg, {exe.dmg.size} ›</a> (first launch: right-click › Open)</>}</> : <>Hold <b>Ctrl + Shift + Space</b> and talk. Or skip building: <a className="link" href={exe.url}>get the {exe.tag} installer, {exe.size} ›</a></>}</dd></div>
               </dl>
             </motion.div>
           </AnimatePresence>
