@@ -124,13 +124,45 @@ fn begin(app: &AppHandle, c: &Arc<Core>, hands_free: bool) {
         show_main(app, Some("voice"));
         return;
     }
+    report("press", serde_json::json!({"provider": s.provider, "model": s.model, "accessibility": paste::accessibility_ok()}));
     position_overlay(app);
     if s.sounds {
         audio::blip(audio::Blip::Start);
     }
-    let a2 = app.clone();
+    let (a2, c2) = (app.clone(), c.clone());
+    // (speech heard yet, last time it was loud, when listening started)
+    let vad = Arc::new(Mutex::new((false, Instant::now(), Instant::now())));
     let on_level = move |level: f32| {
         let _ = a2.emit_to("overlay", "level", level);
+        // Hands-free: stop by itself once you've spoken and then gone quiet.
+        if *c2.mode.lock() != Mode::HandsFree {
+            return;
+        }
+        let mut v = vad.lock();
+        let now = Instant::now();
+        if level > SPEECH_LEVEL {
+            v.0 = true;
+            v.1 = now;
+        }
+        let trigger = if v.0 && now.duration_since(v.1) > END_OF_SPEECH {
+            Some(true)
+        } else if !v.0 && now.duration_since(v.2) > NO_SPEECH_TIMEOUT {
+            Some(false)
+        } else {
+            None
+        };
+        if let Some(spoke) = trigger {
+            *v = (false, now, now + Duration::from_secs(3600)); // fire once
+            let (a3, c3) = (a2.clone(), c2.clone());
+            std::thread::spawn(move || {
+                report("auto_stop", serde_json::json!({"spoke": spoke}));
+                if spoke {
+                    finish(&a3, &c3)
+                } else {
+                    cancel_with(&a3, "No speech heard. Check Murmur's microphone permission.")
+                }
+            });
+        }
     };
     let rec = match c.test_audio.lock().clone() {
         Some((samples, rate)) => audio::Recording::replay(samples, rate, on_level),
@@ -148,6 +180,7 @@ fn begin(app: &AppHandle, c: &Arc<Core>, hands_free: bool) {
 }
 
 fn finish(app: &AppHandle, c: &Arc<Core>) {
+    report("release", serde_json::json!(null));
     {
         let mut m = c.mode.lock();
         if !matches!(*m, Mode::Holding | Mode::HandsFree) {
@@ -167,7 +200,16 @@ fn finish(app: &AppHandle, c: &Arc<Core>) {
     });
 }
 
+/// Loudness (0..1, see audio::loudness) that counts as speech, and the pauses that end a hands-free take.
+const SPEECH_LEVEL: f32 = 0.38;
+const END_OF_SPEECH: Duration = Duration::from_millis(1400);
+const NO_SPEECH_TIMEOUT: Duration = Duration::from_secs(12);
+
 fn cancel(app: &AppHandle) {
+    cancel_with(app, "Cancelled");
+}
+
+fn cancel_with(app: &AppHandle, msg: &str) {
     let c = core(app);
     {
         let mut m = c.mode.lock();
@@ -177,13 +219,14 @@ fn cancel(app: &AppHandle) {
         *m = Mode::Idle;
     }
     let _ = app.global_shortcut().unregister("Escape");
+    report("cancel", serde_json::json!(null));
     if let Some(sess) = c.session.lock().take() {
         drop(sess.rec);
         if let Ok(p) = sess.pending {
             std::thread::spawn(move || p.cancel());
         }
     }
-    emit_phase(app, "idle", None, Some("Cancelled".into()), false);
+    emit_phase(app, "idle", None, Some(msg.into()), false);
 }
 
 fn pipeline(app: &AppHandle, c: &Arc<Core>, sess: Session) {
@@ -209,6 +252,8 @@ fn pipeline(app: &AppHandle, c: &Arc<Core>, sess: Session) {
         Err(e) => return fail(e, pending),
     };
     let seconds = audio.len() as f32 / 16_000.0;
+    let peak = audio.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    report("audio", serde_json::json!({"seconds": seconds, "peak": peak, "speech": audio::has_speech(&audio), "device": *audio::LAST_DEVICE.lock()}));
     if !audio::has_speech(&audio) {
         if let Ok(p) = pending {
             p.cancel();
@@ -257,6 +302,7 @@ fn pipeline(app: &AppHandle, c: &Arc<Core>, sess: Session) {
         }
     };
 
+    let mut copied = false;
     let selftest_no_paste = std::env::var_os("MURMUR_SELFTEST").is_some() && std::env::var_os("MURMUR_SELFTEST_PASTE").is_none();
     if selftest_no_paste {
         // self-test: don't type into whatever app happens to be focused
@@ -266,11 +312,13 @@ fn pipeline(app: &AppHandle, c: &Arc<Core>, sess: Session) {
             warning = Some(format!("Couldn't paste ({e}). It's on your clipboard."));
         }
     } else {
+        // no paste permission: hand the rephrased text over via the clipboard instead
         let _ = arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text.clone()));
-        warning = Some("Copied. Allow Murmur under Accessibility to paste automatically.".into());
+        copied = true;
     }
-    report("result", serde_json::json!({"raw": raw, "text": text, "ms": t0.elapsed().as_millis() as u64, "warning": warning, "provider": used}));
-    emit_phase(app, "done", Some(text.clone()), warning, false);
+    report("result", serde_json::json!({"raw": raw, "text": text, "ms": t0.elapsed().as_millis() as u64, "warning": warning, "provider": used, "copied": copied}));
+    let detail = if copied && warning.is_none() { Some("copied".to_string()) } else { warning };
+    emit_phase(app, "done", Some(text.clone()), detail, false);
 
     let item = HistoryItem { ts: now_ms(), raw, text, provider: used, seconds, ms: t0.elapsed().as_millis() as u64 };
     let mut h = c.history.lock();
@@ -286,11 +334,29 @@ fn pipeline(app: &AppHandle, c: &Arc<Core>, sess: Session) {
 // MURMUR_SELFTEST=clip.wav runs one full dictation with the clip standing in for the microphone,
 // through the real windows, then exits. Findings are written as JSON lines to MURMUR_REPORT.
 
+/// Diagnostic log: always written to the app log (~/Library/Logs/Murmur/murmur.log on macOS),
+/// and also to MURMUR_REPORT during self-tests. Contains no audio, only what happened.
 fn report(kind: &str, data: serde_json::Value) {
-    let Some(path) = std::env::var_os("MURMUR_REPORT") else { return };
     let line = serde_json::json!({"t": now_ms(), "kind": kind, "data": data});
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(f, "{line}");
+    let mut paths = vec![log_path()];
+    if let Some(p) = std::env::var_os("MURMUR_REPORT") {
+        paths.push(PathBuf::from(p));
+    }
+    for path in paths {
+        if let Some(d) = path.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+}
+
+pub fn log_path() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        dirs::home_dir().unwrap_or_default().join("Library/Logs/Murmur/murmur.log")
+    } else {
+        settings::data_dir().join("murmur.log")
     }
 }
 
@@ -336,12 +402,20 @@ fn run_selftest(app: AppHandle, c: Arc<Core>, wav: String) {
     std::thread::sleep(Duration::from_secs(3));
     report("windows:start", window_states(&app));
     on_press(&app);
-    std::thread::sleep(Duration::from_secs_f32(secs.min(6.0) / 2.0));
-    report("windows:listening", window_states(&app));
-    std::thread::sleep(Duration::from_secs_f32(secs.min(6.0) / 2.0 + 0.3));
-    on_release(&app);
+    if std::env::var_os("MURMUR_SELFTEST_TAP").is_some() {
+        // quick tap → hands-free; Murmur must stop by itself when the clip goes quiet
+        std::thread::sleep(Duration::from_millis(120));
+        on_release(&app);
+        std::thread::sleep(Duration::from_secs_f32(secs.min(6.0) / 2.0));
+        report("windows:listening", window_states(&app));
+    } else {
+        std::thread::sleep(Duration::from_secs_f32(secs.min(6.0) / 2.0));
+        report("windows:listening", window_states(&app));
+        std::thread::sleep(Duration::from_secs_f32(secs.min(6.0) / 2.0 + 0.3));
+        on_release(&app);
+    }
     let t = Instant::now();
-    while *c.mode.lock() != Mode::Idle && t.elapsed() < Duration::from_secs(40) {
+    while *c.mode.lock() != Mode::Idle && t.elapsed() < Duration::from_secs(60) {
         std::thread::sleep(Duration::from_millis(20));
     }
     report("pipeline", serde_json::json!({"finished_ms": t.elapsed().as_millis() as u64, "mode": format!("{:?}", *c.mode.lock())}));
@@ -586,6 +660,9 @@ fn copy_text(text: String) -> Result<(), String> {
 
 #[tauri::command]
 fn open_privacy(which: String) {
+    if which == "accessibility" && paste::request_accessibility() {
+        return;
+    }
     paste::open_privacy_pane(&which);
 }
 
@@ -632,7 +709,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| show_main(app, None)))
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--background"])))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, sc, ev| {
@@ -703,9 +780,21 @@ pub fn run() {
             }
 
             let shortcut = state.settings.lock().shortcut.clone();
-            if let Err(e) = register_shortcut(&handle, &state, &shortcut) {
+            let registered = register_shortcut(&handle, &state, &shortcut);
+            if let Err(e) = &registered {
                 eprintln!("murmur: {e}");
             }
+            // ask macOS for paste permission up front (shows the system prompt once if missing)
+            let trusted = paste::accessibility_ok() || paste::request_accessibility();
+            if let Ok(meta) = std::fs::metadata(log_path()) {
+                if meta.len() > 2_000_000 {
+                    let _ = std::fs::remove_file(log_path());
+                }
+            }
+            report("startup", serde_json::json!({
+                "shortcut": shortcut, "shortcut_ok": registered.is_ok(), "shortcut_error": registered.err(),
+                "accessibility": trusted, "exe": std::env::current_exe().ok(),
+            }));
 
             let open = MenuItem::with_id(app, "open", "Open Murmur…", true, None::<&str>)?;
             let dictate = MenuItem::with_id(app, "dictate", "Start Dictation", true, None::<&str>)?;
@@ -750,7 +839,10 @@ pub fn run() {
 
             let first_run = { !state.settings.lock().onboarded };
             let model = state.settings.lock().model.clone();
-            if first_run || !stt::installed(&model) {
+            // Opened by the user → show the window. Started at login (--background) or by a
+            // self-test → stay quietly in the menu bar unless setup isn't finished.
+            let background = std::env::args().any(|a| a == "--background") || std::env::var_os("MURMUR_SELFTEST").is_some();
+            if first_run || !stt::installed(&model) || !background {
                 show_main(&handle, None);
             }
             preload(&state);
@@ -759,6 +851,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Murmur")
         .run(|app, ev| {
+            // clicking Murmur in Finder/Spotlight/Dock while it's already running
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = ev {
+                show_main(app, None);
+            }
             if let tauri::RunEvent::Exit = ev {
                 // whisper.cpp's Metal backend asserts if a model is still loaded at process exit
                 app.state::<Arc<Core>>().stt.unload();

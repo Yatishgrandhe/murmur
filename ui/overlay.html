@@ -56,6 +56,7 @@
   .row > * { flex: none; }
 
   .timer { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 12px; color: rgba(255,255,255,.55); letter-spacing: .02em; transition: opacity .3s; }
+  .lock { width: 13px; height: 13px; color: rgba(255,255,255,.7); margin-left: -2px; }
   .rec { width: 7px; height: 7px; border-radius: 50%; background: #ff453a; box-shadow: 0 0 10px #ff453a; animation: pulse 1.4s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .35; transform: scale(.8); } }
   .tag { font-size: 10px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; padding: 4px 7px; border-radius: 999px; color: rgba(255,255,255,.85); background: rgba(255,255,255,.1); box-shadow: 0 0 0 .5px rgba(255,255,255,.14) inset; }
@@ -114,7 +115,7 @@ const ctx = canvas.getContext('2d');
 
 let target = 0, level = 0, vel = 0, energy = 0;   // voice level (spring-smoothed)
 let mode = 'idle';                                  // drives the wave look
-let startedAt = 0, timerEl = null, hideTimer = null;
+let startedAt = 0, timerEl = null, hideTimer = null, handsFree = false;
 
 const setW = w => pill.style.setProperty('--w', w + 'px');
 const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -142,11 +143,13 @@ function render(p) {
       const fresh = mode !== 'listen';
       mode = 'listen';
       if (fresh) startedAt = performance.now();
-      row.innerHTML = `<span class="rec"></span>${p.hands_free ? '<span class="tag fade-in">Hands-free</span>' : ''}<span class="timer" id="timer">0:00</span>`;
+      handsFree = !!p.hands_free;
+      // hands-free gets a small lock glyph next to the rec dot; the waves start after it (never underneath)
+      row.innerHTML = `<span class="rec"></span>${handsFree ? '<svg class="lock fade-in" viewBox="0 0 16 16" aria-label="Hands-free"><rect x="3.5" y="7" width="9" height="7" rx="2" fill="currentColor"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>' : ''}<span class="timer" id="timer">0:00</span>`;
       timerEl = document.getElementById('timer');
       canvas.style.opacity = 1;
       aura.className = 'aura on';
-      show(p.hands_free ? 268 : 232);
+      show(handsFree ? 248 : 232);
       break;
     }
     case 'transcribing':
@@ -166,11 +169,13 @@ function render(p) {
       mode = 'idle'; canvas.style.opacity = 0;
       const t = (p.text || '').replace(/\s+/g, ' ').trim();
       const short = t.length > 46 ? t.slice(0, 44) + '…' : t;
+      const copied = p.detail === 'copied', warn = p.detail && !copied;
       row.innerHTML = `<span class="check"><svg viewBox="0 0 14 14"><path d="M3 7.4 5.9 10 11 4" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>` +
-        (p.detail ? `<span class="preview warn fade-in">${esc(p.detail)}</span>` : `<span class="preview fade-in">${esc(short)}</span>`);
+        (warn ? `<span class="preview warn fade-in">${esc(p.detail)}</span>` : `<span class="preview fade-in">${esc(short)}</span>`) +
+        (copied ? `<span class="tag fade-in">⌘V to paste</span>` : '');
       aura.className = 'aura on ok';
-      show(Math.min(380, Math.max(150, 84 + Math.max(short.length, p.detail ? Math.min(p.detail.length, 48) : 0) * 7.1)));
-      hide(p.detail ? 4200 : 1500);
+      show(Math.min(430, Math.max(150, 84 + (copied ? 104 : 0) + Math.max(short.length, warn ? Math.min(p.detail.length, 48) : 0) * 7.1)));
+      hide(warn ? 4200 : copied ? 5500 : 1500);
       break;
     }
     case 'error':
@@ -223,7 +228,7 @@ function frame(now) {
   ctx.clearRect(0, 0, W, H);
   if (energy > .01) {
     const time = now / 1000;
-    const left = mode === 'listen' ? 30 * d : 0;           // leave room for the rec dot
+    const left = mode === 'listen' ? (handsFree ? 54 : 30) * d : 0;   // leave room for the rec dot (+ lock)
     const right = mode === 'listen' ? 52 * d : 0;          // and the timer
     const span = W - left - right;
     const amp = (mode === 'think' ? .10 + .06 * Math.sin(time * 3) : .08 + level * .92) * energy;

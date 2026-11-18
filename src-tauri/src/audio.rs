@@ -58,10 +58,14 @@ fn mic_denied_message() -> String {
     }
 }
 
+/// Name/format of the microphone used last (for the diagnostic log).
+pub static LAST_DEVICE: Mutex<String> = Mutex::new(String::new());
+
 fn capture(stop: Arc<AtomicBool>, on_level: impl Fn(f32)) -> Captured {
     let host = cpal::default_host();
     let dev = host.default_input_device().ok_or("No microphone found")?;
     let cfg = dev.default_input_config().map_err(|e| format!("Microphone unavailable: {e}"))?;
+    *LAST_DEVICE.lock() = format!("{} · {} Hz · {} ch · {:?}", dev.name().unwrap_or_default(), cfg.sample_rate().0, cfg.channels(), cfg.sample_format());
     let rate = cfg.sample_rate().0;
     let ch = cfg.channels() as usize;
     let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::with_capacity(rate as usize * 30)));
@@ -100,6 +104,7 @@ fn capture(stop: Arc<AtomicBool>, on_level: impl Fn(f32)) -> Captured {
     drop(stream);
     let samples = std::mem::take(&mut *buf.lock());
     Ok((samples, rate))
+    // note: replay() mirrors this loop for self-tests
 }
 
 fn push(mono: impl Iterator<Item = f32>, buf: &Mutex<Vec<f32>>, level: &AtomicU32) {

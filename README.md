@@ -43,7 +43,7 @@ what you meant to type, and pastes it into the app you're in: Slack, Gmail, VS C
 | Do this | Result |
 |---|---|
 | **Hold** the shortcut, talk, release | Dictate a sentence or a paragraph |
-| **Tap** the shortcut once | Hands-free: keep talking, tap again to finish |
+| **Tap** the shortcut once | Hands-free: talk, then just stop. Murmur finishes by itself after a short pause (or tap again) |
 | **Esc** while listening | Cancel |
 | Say "new paragraph", "new line", "comma", "question mark"… | Formatting, typed for you |
 
@@ -126,7 +126,11 @@ ui/            overlay pill (canvas waves) and the settings / onboarding window.
 ## Troubleshooting
 
 - **Nothing pastes (macOS):** enable Murmur under Privacy & Security › Accessibility. If you updated the app,
-  toggle it off and on again. Until then, Murmur copies the text to your clipboard instead.
+  remove it with − and add it again. Until then, Murmur copies the rephrased text and the pill says "⌘V to paste".
+- **Building it yourself on a Mac:** `./scripts/install-mac.sh` builds, signs with your Apple Development certificate
+  if you have one (so permissions survive rebuilds), installs to /Applications and starts it.
+- **What happened?** `~/Library/Logs/Murmur/murmur.log` records each dictation step: mic, audio level, transcript and
+  result. It holds no audio.
 - **"Not signed in":** open Murmur › AI Rewrite and click **Sign in**, or run `claude auth login` / `codex login`.
 - **Shortcut does nothing:** another app may own it. Pick a different one under Shortcut.
 - **Intel Macs / Linux:** not in the prebuilt releases yet. Build from source.

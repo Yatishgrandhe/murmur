@@ -313,6 +313,7 @@ function renderStatus(phase) {
   if (phase === 'transcribing' || phase === 'rewriting') { s.classList.add('live'); t.textContent = phase === 'rewriting' ? 'Polishing…' : 'Transcribing…'; return; }
   if (!model?.installed) { s.classList.add('warn'); t.textContent = 'Download a voice model'; return; }
   if (ps && provState(st.settings.provider) !== 'ok') { s.classList.add('warn'); t.textContent = `${PROV[st.settings.provider].name} not connected`; return; }
+  if (ps && isMac() && !ps.accessibility) { s.classList.add('warn'); t.innerHTML = `Ready · <span class="keys sm">${keysHTML(st.settings.shortcut)}</span> · results copied, ⌘V`; return; }
   t.innerHTML = `Ready · <span class="keys sm">${keysHTML(st.settings.shortcut)}</span>`;
 }
 let heroEnergy = 0.25;

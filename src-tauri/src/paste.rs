@@ -45,6 +45,32 @@ pub fn accessibility_ok() -> bool {
     }
 }
 
+/// Shows macOS's own "Murmur would like to control this computer" prompt, which also adds
+/// Murmur to the Accessibility list with the right identity. Returns the current trust state.
+pub fn request_accessibility() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use core_foundation::base::TCFType;
+        use core_foundation::boolean::CFBoolean;
+        use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
+        use core_foundation::string::{CFString, CFStringRef};
+        #[link(name = "ApplicationServices", kind = "framework")]
+        extern "C" {
+            static kAXTrustedCheckOptionPrompt: CFStringRef;
+            fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
+        }
+        unsafe {
+            let key = CFString::wrap_under_get_rule(kAXTrustedCheckOptionPrompt);
+            let opts = CFDictionary::from_CFType_pairs(&[(key, CFBoolean::true_value())]);
+            AXIsProcessTrustedWithOptions(opts.as_concrete_TypeRef())
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
 pub fn open_privacy_pane(which: &str) {
     #[cfg(target_os = "macos")]
     {
