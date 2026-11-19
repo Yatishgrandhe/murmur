@@ -1,10 +1,10 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import { useLive } from '../hooks';
-import { shortcutText, type OS } from '../site';
+import { SHORTCUT, type OS } from '../site';
 import { useInstaller } from '../useInstaller';
 import { AppleGlyph, WindowsGlyph } from './Icons';
-import { MacWindow, Pill, type PillState } from './Mock';
+import { Keys, MacWindow, Pill, type PillState } from './Mock';
 
 const RAW = 'um so tell john I’m like running ten min late';
 const CLEAN = 'Running about 10 minutes late!';
@@ -81,10 +81,10 @@ export function Hero({ os, ready }: { os: OS; ready: boolean }) {
         <div className="hero-copy">
           <motion.h1 {...enter(0)}>Talk.<br />It types.</motion.h1>
           <motion.p className="hero-sub" {...enter(0.08)}>
-            Hold {shortcutText(os)}, ramble, let go. Murmur cleans it up and pastes it where your cursor is.
+            Hold <Keys keys={SHORTCUT[os]} />, ramble, let go. Murmur cleans it up and pastes it where your cursor is.
           </motion.p>
           <motion.div {...enter(0.16)}><DownloadButtons os={os} /></motion.div>
-          <motion.p className="hero-fine" {...enter(0.22)}>Free · Open source · Uses the Claude or ChatGPT plan you already have</motion.p>
+          <motion.p className="hero-fine" {...enter(0.22)}>Free · Open source · About 10 MB · Uses the Claude or ChatGPT plan you already have</motion.p>
         </div>
 
         <motion.div className="hero-stage" {...enter(0.12)}>

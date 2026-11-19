@@ -10,16 +10,20 @@ export function detectOS(): OS {
   const forced = new URLSearchParams(location.search).get('os');
   if (forced === 'mac' || forced === 'windows') return forced; // ?os=windows to preview the other OS
   const nav = navigator as NavigatorUA;
-  const s = `${nav.userAgentData?.platform ?? ''} ${nav.userAgent}`.toLowerCase();
-  return /windows|win32|win64/.test(s) ? 'windows' : 'mac';
+  const platform = (nav.userAgentData?.platform || nav.platform || nav.userAgent).toLowerCase();
+  return /^win|windows/.test(platform) ? 'windows' : 'mac';
 }
 
-/** Each visitor sees only their own OS's shortcut. Windows uses Ctrl+Shift+Space because Alt+Space opens the window menu there. */
+export const OS_NAME: Record<OS, string> = { mac: 'Mac', windows: 'Windows' };
+
+/** Keycaps per OS. Windows keys are words, never ⌘/⌥ glyphs. Alt+Space opens the window menu on Windows, hence Ctrl+Shift+Space. */
 export const SHORTCUT: Record<OS, string[]> = { mac: ['⌥', 'Space'], windows: ['Ctrl', 'Shift', 'Space'] };
+export const PASTE: Record<OS, string[]> = { mac: ['⌘', 'V'], windows: ['Ctrl', 'V'] };
+export const KEY_NAME: Record<string, string> = { '⌥': 'Option', '⌘': 'Command' };
 export const shortcutText = (os: OS) => (os === 'mac' ? '⌥ Space' : 'Ctrl + Shift + Space');
 
 
-/* ---------- Latest Windows installer, looked up from GitHub Releases ---------- */
+/* ---------- Latest installers (.exe and .dmg), looked up from GitHub Releases ---------- */
 export type MacDownload = { url: string; size: string };
 export type Installer = { url: string; size: string; tag: string; dmg: MacDownload | null };
 export const FALLBACK_INSTALLER: Installer = { url: WIN_EXE, size: '3.6 MB', tag: 'v0.1.0', dmg: null };
@@ -32,7 +36,7 @@ export function latestInstaller(): Promise<Installer> {
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
     .then((rel: { tag_name: string; assets: { name: string; size: number; browser_download_url: string }[] }) => {
       const exe = rel.assets.find((a) => /x64-setup\.exe$/i.test(a.name));
-      const dmg = rel.assets.find((a) => /aarch64\.dmg$/i.test(a.name));
+      const dmg = rel.assets.find((a) => /aarch64\.dmg$/i.test(a.name)) ?? rel.assets.find((a) => /\.dmg$/i.test(a.name));
       const mac = dmg ? { url: dmg.browser_download_url, size: mb(dmg.size) } : null;
       if (!exe) return { ...FALLBACK_INSTALLER, dmg: mac };
       return { url: exe.browser_download_url, size: mb(exe.size), tag: rel.tag_name, dmg: mac };

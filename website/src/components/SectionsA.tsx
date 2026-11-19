@@ -1,12 +1,12 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useId, useRef, useState } from 'react';
 import { useLive, useTick, useTyped } from '../hooks';
-import { SHORTCUT, type OS } from '../site';
-import { Key, MacWindow, Pill } from './Mock';
+import { PASTE, SHORTCUT, type OS } from '../site';
+import { Key, Keys, MacWindow, Pill } from './Mock';
 import { Waveform } from './Waveform';
 
 /* ---------- Segmented control (real UI, used in several sections) ---------- */
-export function Segmented<T extends string>({ value, options, onChange, label, tone = 'light' }: { value: T; options: { id: T; label: React.ReactNode }[]; onChange: (v: T) => void; label: string; tone?: 'light' | 'dark' }) {
+export function Segmented<T extends string>({ value, options, onChange, label, tone = 'light', size = 'md', kind = 'tabs' }: { value: T; options: { id: T; label: React.ReactNode }[]; onChange: (v: T) => void; label: string; tone?: 'light' | 'dark'; size?: 'sm' | 'md'; kind?: 'tabs' | 'radio' }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const gid = useId();
   const onKey = (e: React.KeyboardEvent, i: number) => {
@@ -17,11 +17,11 @@ export function Segmented<T extends string>({ value, options, onChange, label, t
     refs.current[n]?.focus();
   };
   return (
-    <div className={`seg seg--${tone}`} role="tablist" aria-label={label}>
+    <div className={`seg seg--${tone} seg--${size}`} role={kind === 'radio' ? 'radiogroup' : 'tablist'} aria-label={label}>
       {options.map((o, i) => {
         const on = o.id === value;
         return (
-          <button key={o.id} ref={(el) => { refs.current[i] = el; }} role="tab" type="button" aria-selected={on} tabIndex={on ? 0 : -1}
+          <button key={o.id} ref={(el) => { refs.current[i] = el; }} role={kind === 'radio' ? 'radio' : 'tab'} type="button" aria-selected={kind === 'tabs' ? on : undefined} aria-checked={kind === 'radio' ? on : undefined} tabIndex={on ? 0 : -1}
             className={`seg-btn ${on ? 'is-on' : ''}`} onClick={() => onChange(o.id)} onKeyDown={(e) => onKey(e, i)}>
             {on && <motion.span layoutId={`seg-${gid}`} className="seg-thumb" transition={{ duration: 0.2, ease: 'easeOut' }} />}
             <span className="seg-label">{o.label}</span>
@@ -114,17 +114,19 @@ export function Shortcut({ os }: { os: OS }) {
           </div>
         </div>
         <ul className="shortcut-lines">
-          <li><b>Hold</b> to talk. Let go and it’s pasted.</li>
-          <li><b>Tap once</b> for hands-free. It stops after a two-second pause.</li>
-          <li><b>Esc</b> cancels. Nothing gets typed.</li>
+          <li><Keys keys={keys} /><span><b>Hold</b> to talk. Let go and it’s pasted where your cursor is.</span></li>
+          <li><Keys keys={keys} /><span><b>Tap once</b> for hands-free. It stops when you pause, or tap again to finish.</span></li>
+          <li><Keys keys={['Esc']} /><span><b>Cancel.</b> Nothing gets typed.</span></li>
+          <li><Keys keys={PASTE[os]} /><span><b>Paste it again.</b> The last dictation stays on the clipboard, even if no text field had focus.</span></li>
         </ul>
+        <p className="shortcut-note">Want different keys? Change them in Murmur › Shortcut.</p>
       </div>
     </section>
   );
 }
 
 /* ---------- 4. Hey Murmur (cobalt) ---------- */
-export function Wake() {
+export function Wake({ os }: { os: OS }) {
   const ref = useRef<HTMLElement>(null);
   const live = useLive(ref);
   const tick = useTick(2600, live);
@@ -136,7 +138,10 @@ export function Wake() {
         <blockquote className="wake-quote">“Hey Murmur, tell John I’m running late.”</blockquote>
         <Waveform level={level} bars={72} color="#ffffff" className="wake-meter" />
         <p className="wake-line">
-          The wake word is off until you turn it on. Change the phrase under Shortcut. It’s matched on your computer, so nothing leaves until it hears it.
+          Say “Hey Murmur”, pause, then talk. Or say it all in one breath. It’s off until you turn it on in Murmur › Shortcut.{' '}
+          {os === 'windows'
+            ? 'Windows’ offline phrase recognizer listens for it, so background audio isn’t uploaded.'
+            : 'Your Mac listens for it with on-device recognition where your Mac supports it.'}
         </p>
       </div>
     </section>

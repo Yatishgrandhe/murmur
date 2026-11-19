@@ -1,9 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useId, useState } from 'react';
-import { REPO, type OS } from '../site';
+import { PASTE, REPO, SHORTCUT, type OS } from '../site';
 import { DownloadButtons } from './Hero';
 import { AppleGlyph, IconCheck, IconChevron, IconCopy, IconMic, WindowsGlyph } from './Icons';
-import { MurmurApp, Pill } from './Mock';
+import { Keys, MurmurApp, Pill } from './Mock';
 import { MurmurIcon } from './MurmurIcon';
 import { useInstaller } from '../useInstaller';
 import { Segmented } from './SectionsA';
@@ -14,7 +14,7 @@ const PROVIDERS = {
   chatgpt: { name: 'ChatGPT', runs: 'OpenAI’s Codex app, signed in with ChatGPT', pays: 'Nothing extra. Counts toward your Plus or Pro usage.', speed: '3 to 4.5 seconds' },
   claudeApi: { name: 'Claude API', runs: 'A direct request with your key, kept in the system keychain', pays: 'Anthropic’s per-token price', speed: 'Depends on the model' },
   openaiApi: { name: 'OpenAI API', runs: 'A direct request with your key, kept in the system keychain', pays: 'OpenAI’s per-token price', speed: 'Depends on the model' },
-  none: { name: 'No rewrite', runs: 'Nothing. You get Whisper’s transcript as is.', pays: 'Nothing. Works offline.', speed: 'Instant' },
+  none: { name: 'No rewrite', runs: 'Nothing. You get the transcript exactly as it was heard.', pays: 'Nothing.', speed: 'Instant' },
 } as const;
 type Provider = keyof typeof PROVIDERS;
 
@@ -42,7 +42,7 @@ export function YourAi() {
             <p>From letting go of the key to text in the box. Measured on an M4 MacBook with Claude Haiku.</p>
           </div>
         </div>
-        <p className="ai-quiet">The app is about 10 MB. The voice model is 75–550 MB, downloaded once. If the AI is down or you hit a limit, you get your raw transcript instead of nothing.</p>
+        <p className="ai-quiet">No API key or extra subscription needed: sign in to Claude Code or Codex once and Murmur uses that. Speech-to-text is built into macOS and Windows, so the whole app is about 10 MB with nothing else to download. If the AI is down or you hit a limit, you get the plain transcript instead of nothing.</p>
       </div>
     </section>
   );
@@ -97,7 +97,7 @@ export function Privacy({ os }: { os: OS }) {
   return (
     <section className="sec sec--black privacy" id="privacy">
       <div className="wrap privacy-inner">
-        <h2 className="privacy-line">Your voice stays on your computer until you say so</h2>
+        <h2 className="privacy-line">The AI reads your words. It never hears your voice</h2>
         <div className={`privacy-visual ${mac ? '' : 'privacy-visual--win'}`} aria-hidden>
           <div className="wallpaper wallpaper--night" />
           {mac ? (
@@ -119,20 +119,29 @@ export function Privacy({ os }: { os: OS }) {
                 <span className="tb-mic"><IconMic size={15} /></span>
                 <span className="callout callout--up"><span className="callout-label">Mic icon = mic is on</span><span className="callout-line" /></span>
               </span>
+              <MurmurIcon size={18} />
               <span>9:41 AM</span>
             </div>
           )}
           <div className="toast">
             <span className="toast-k">Sent to Claude</span>
             <span>“Running about 10 minutes late!”</span>
-            <small>Text only. The audio never left this computer.</small>
+            <small>The transcript only. No audio.</small>
           </div>
           <div className="privacy-pill"><Pill state="listen" text="um so tell john I’m like running ten min late" level={0.7} /></div>
         </div>
         <ul className="privacy-facts">
-          <li>Whisper turns speech into text on your computer. Only that text goes to the AI you picked.</li>
-          <li>The wake word is checked locally. Nothing leaves until it hears the phrase.</li>
-          <li>API keys sit in the system keychain. The log keeps transcripts, never audio.</li>
+          {mac ? (
+            <li><b>Speech to text on your Mac.</b> Apple’s speech recognition runs on the Mac itself when your Mac supports on-device recognition.</li>
+          ) : (
+            <li><b>Speech to text by Microsoft.</b> Windows dictation uses Microsoft’s online speech recognition, so the audio you dictate goes to Microsoft.</li>
+          )}
+          <li><b>Text to the AI.</b> Only the transcript, never the audio, goes to Claude or ChatGPT for the rewrite.</li>
+          {mac ? (
+            <li><b>Kept on this Mac.</b> History holds transcripts, never audio. API keys, if you use them, sit in the Keychain.</li>
+          ) : (
+            <li><b>Wake word stays local.</b> Windows’ offline phrase recognizer listens for “Hey Murmur”, so background audio isn’t uploaded.</li>
+          )}
         </ul>
       </div>
     </section>
@@ -159,8 +168,7 @@ const CMDS: Record<OS, string[]> = {
   windows: ['git clone https://github.com/Yatishgrandhe/murmur.git', 'cd murmur', 'powershell -ExecutionPolicy Bypass -File scripts\\install-windows.ps1'],
 };
 
-export function Install({ os: detected }: { os: OS }) {
-  const [os, setOs] = useState<OS>(detected);
+export function Install({ os, onOs: setOs }: { os: OS; onOs: (o: OS) => void }) {
   const { copied, copy } = useCopy();
   const mac = os === 'mac';
   const exe = useInstaller();
@@ -169,7 +177,7 @@ export function Install({ os: detected }: { os: OS }) {
       <div className="wrap install-inner">
         <div className="install-head">
           <h2>Install it</h2>
-          <p className="body">{mac ? (exe.dmg ? 'Download the app for Apple Silicon Macs, or build it yourself with three commands.' : 'There’s no Mac download yet, so you build it. Three commands, a few minutes.') : 'Run the installer, or build it yourself with three commands.'}</p>
+          <p className="body">{mac ? (exe.dmg ? 'Download the app for Apple Silicon Macs, or build it yourself with three commands.' : 'There’s no Mac download yet, so you build it. Three commands, a few minutes.') : 'Run the installer, or build it yourself with three commands. Setup steps for Windows are just below.'}</p>
         </div>
         <div className="install-main">
           <Segmented label="Operating system" value={os} onChange={setOs} options={[{ id: 'mac', label: 'macOS' }, { id: 'windows', label: 'Windows' }]} />
@@ -197,9 +205,9 @@ export function Install({ os: detected }: { os: OS }) {
                 </div>
               </div>
               <dl className="install-facts">
-                <div><dt>You need</dt><dd>{mac ? 'Rust, Node.js and the Xcode command-line tools' : 'Rust, Node.js, VS C++ build tools, CMake, LLVM, WebView2'}</dd></div>
-                <div><dt>Allow</dt><dd>{mac ? 'Microphone, and Accessibility so it can paste' : 'Microphone, under Settings › Privacy'}</dd></div>
-                <div><dt>Then</dt><dd>{mac ? <>Hold <b>⌥ Space</b> and talk.{exe.dmg && <> Or skip building: <a className="link" href={exe.dmg.url}>get the {exe.tag} .dmg, {exe.dmg.size} ›</a> (first launch: right-click › Open)</>}</> : <>Hold <b>Ctrl + Shift + Space</b> and talk. Or skip building: <a className="link" href={exe.url}>get the {exe.tag} installer, {exe.size} ›</a></>}</dd></div>
+                <div><dt>You need</dt><dd>{mac ? 'Rust, Node.js and the Xcode command-line tools' : 'Rust, Node.js, the Visual Studio C++ build tools and WebView2'}</dd></div>
+                <div><dt>Allow</dt><dd>{mac ? 'Microphone, Speech Recognition, and Accessibility so it can paste' : 'Microphone and Online speech recognition, under Settings › Privacy & security'}</dd></div>
+                <div><dt>Then</dt><dd>{mac ? <>Hold <Keys keys={SHORTCUT.mac} /> and talk.{exe.dmg && <> Or skip building: <a className="link" href={exe.dmg.url}>get the {exe.tag} .dmg, {exe.dmg.size} ›</a> (first launch: right-click › Open)</>}</> : <>Hold <Keys keys={SHORTCUT.windows} /> and talk. Or skip building: <a className="link" href={exe.url}>get the {exe.tag} installer, {exe.size} ›</a></>}</dd></div>
               </dl>
             </motion.div>
           </AnimatePresence>
@@ -209,12 +217,65 @@ export function Install({ os: detected }: { os: OS }) {
   );
 }
 
+/* ---------- 9b. Windows setup (light) ---------- */
+export function WindowsSetup() {
+  const exe = useInstaller();
+  const steps: { h: string; body: React.ReactNode; aside?: React.ReactNode }[] = [
+    {
+      h: 'Install',
+      body: <>Download <a className="link" href={exe.url}>{exe.url.split('/').pop()!.split('_').map((part, i) => <span key={i}>{i > 0 && <>_<wbr /></>}{part}</span>)}</a> from the latest release and run it. If SmartScreen appears, click <b>More info</b>, then <b>Run anyway</b>.</>,
+      aside: <span className="win-btns" aria-hidden><span>More info</span><span className="is-pri">Run anyway</span></span>,
+    },
+    {
+      h: 'Turn on speech',
+      body: <>Settings › Privacy &amp; security › Speech › turn on <b>Online speech recognition</b>. Windows dictation uses Microsoft’s speech service, so the audio you dictate goes to Microsoft.</>,
+      aside: <span className="win-toggle" aria-hidden><i /></span>,
+    },
+    {
+      h: 'Allow the mic',
+      body: <>Settings › Privacy &amp; security › Microphone › turn on <b>Let desktop apps access your microphone</b>.</>,
+      aside: <span className="win-toggle" aria-hidden><i /></span>,
+    },
+    {
+      h: 'Find it in the tray',
+      body: <>Murmur lives in the system tray, by the clock. Left-click its icon to open settings. Then hold <Keys keys={SHORTCUT.windows} /> and talk.</>,
+      aside: <span className="win-tray" aria-hidden><MurmurIcon size={18} /><span>9:41 AM</span></span>,
+    },
+  ];
+  return (
+    <section className="sec sec--light winsetup" id="windows">
+      <div className="wrap winsetup-inner">
+        <div className="winsetup-head">
+          <p className="eyebrow"><WindowsGlyph size={16} /> On Windows</p>
+          <h2>Four steps, about two minutes</h2>
+          <p className="body">The wake word needs nothing extra. Windows’ offline phrase recognizer listens for “Hey Murmur”, so background audio isn’t uploaded.</p>
+        </div>
+        <ol className="winsetup-steps">
+          {steps.map((st, i) => (
+            <li key={st.h}>
+              <span className="step-n" aria-hidden>{i + 1}</span>
+              <div>
+                <h3>{st.h}</h3>
+                <p>{st.body}</p>
+              </div>
+              {st.aside && <div className="step-aside">{st.aside}</div>}
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
+  );
+}
+
 /* ---------- 10. FAQ + final CTA (black) ---------- */
-const FAQ: [string, string][] = [
-  ['Is it actually free?', 'Yes, it’s open source under Apache-2.0. With Claude or ChatGPT it rides on the plan you already pay for. With an API key you pay the provider per token. No-rewrite mode costs nothing and works offline.'],
-  ['Do I need Claude or ChatGPT?', 'No. Use an API key instead, or switch rewriting off and get the plain transcript.'],
-  ['Does my audio go anywhere?', 'No. Whisper runs on your computer. Only the transcript is sent, and only to the AI you picked.'],
-  ['The shortcut does nothing', 'Another app probably owns it. Open Shortcut in Murmur, click the keys and press a new combination.'],
+const faq = (os: OS): [string, React.ReactNode][] => [
+  ['Is it actually free?', 'Yes, it’s open source under Apache-2.0. With Claude or ChatGPT it rides on the plan you already pay for, with no API key. Turn rewriting off and it costs nothing at all.'],
+  ['Is there a voice model to download?', `No. Murmur uses the speech recognition built into ${os === 'mac' ? 'macOS' : 'Windows'}. The installer is about 10 MB and that’s everything.`],
+  ['Does my audio go anywhere?', os === 'mac'
+    ? 'On a Mac, speech becomes text on the Mac itself when on-device recognition is available. Claude or ChatGPT only ever get the transcript.'
+    : 'Yes, to Microsoft: Windows dictation uses its online speech recognition. Claude or ChatGPT only ever get the transcript. The wake word is checked offline.'],
+  ['I lost what I said', <>It’s still on the clipboard. Press <Keys keys={PASTE[os]} /> to paste the last dictation, even if no text field had focus.</>],
+  ['The shortcut does nothing', 'Another app probably owns it. Open Murmur › Shortcut, click the keys and press a new combination.'],
   ['Intel Mac? Linux?', 'Not in the prebuilt releases yet. You can build from source.'],
 ];
 
@@ -227,7 +288,7 @@ export function Finale({ os }: { os: OS }) {
         <div className="faq">
           <h2>Questions</h2>
           <div className="faq-list">
-            {FAQ.map(([q, a], i) => {
+            {faq(os).map(([q, a], i) => {
               const on = open === i;
               return (
                 <div key={q} className={`faq-item ${on ? 'is-open' : ''}`}>
@@ -248,7 +309,7 @@ export function Finale({ os }: { os: OS }) {
         <div className="final">
           <img src="./murmur-logo.png" width={64} height={64} alt="" />
           <h2>Download Murmur</h2>
-          <p className="body">Free for macOS and Windows.</p>
+          <p className="body">Free for macOS and Windows. About 10 MB.</p>
           <DownloadButtons os={os} />
           <a className="link" href={REPO} target="_blank" rel="noreferrer">Source on GitHub ›</a>
         </div>

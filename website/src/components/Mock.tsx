@@ -1,3 +1,4 @@
+import { KEY_NAME } from '../site';
 import type { CSSProperties, ReactNode } from 'react';
 import { IconBook, IconClock, IconKey, IconSparkle, IconWave } from './Icons';
 import { MurmurIcon } from './MurmurIcon';
@@ -51,7 +52,7 @@ export function Pill({ state, text, level = 0.9, who = 'Claude' }: { state: Pill
 const NAV = [
   { id: 'ai', label: 'AI Rewrite', icon: <IconSparkle size={15} /> },
   { id: 'shortcut', label: 'Shortcut', icon: <IconKey size={15} /> },
-  { id: 'voice', label: 'Voice Model', icon: <IconWave size={15} /> },
+  { id: 'voice', label: 'Speech', icon: <IconWave size={15} /> },
   { id: 'dictionary', label: 'Dictionary', icon: <IconBook size={15} /> },
   { id: 'history', label: 'History', icon: <IconClock size={15} /> },
 ];
@@ -60,7 +61,7 @@ export function MurmurApp({ page, children, dark = false, className = '', compac
     <div className={`mapp ${dark ? 'mapp--dark' : ''} ${compact ? 'mapp--compact' : ''} ${className}`}>
       <aside className="mapp-side">
         <span className="lights" aria-hidden><i /><i /><i /></span>
-        <div className="mapp-brand"><MurmurIcon size={22} /><b>Murmur</b><span>v0.1</span></div>
+        <div className="mapp-brand"><MurmurIcon size={22} /><b>Murmur</b><span>v0.3</span></div>
         <nav>
           {NAV.map((n) => (
             <span key={n.id} className={n.id === page ? 'on' : ''}>{n.icon}{n.label}</span>
@@ -76,8 +77,17 @@ export function MurmurApp({ page, children, dark = false, className = '', compac
 /* ---------- 3D keycap (CSS does the press) ---------- */
 export function Key({ label, wide = 1, pressed }: { label: string; wide?: number; pressed: boolean }) {
   return (
-    <span className={`key ${label.length > 1 ? 'key--word' : ''} ${pressed ? 'is-down' : ''}`} style={{ ['--kw' as string]: wide }}>
+    <kbd className={`key ${label.length > 1 ? 'key--word' : ''} ${pressed ? 'is-down' : ''}`} style={{ ['--kw' as string]: wide }}>
       <span className="key-top">{label}</span>
-    </span>
+    </kbd>
+  );
+}
+
+/* ---------- Inline keycaps for copy: <kbd><kbd>⌥</kbd><kbd>Space</kbd></kbd> ---------- */
+export function Keys({ keys }: { keys: string[] }) {
+  return (
+    <kbd className="kbds" aria-label={keys.map((k) => KEY_NAME[k] ?? k).join(' + ')}>
+      {keys.map((k) => <kbd key={k} className="kbd" aria-hidden>{k}</kbd>)}
+    </kbd>
   );
 }

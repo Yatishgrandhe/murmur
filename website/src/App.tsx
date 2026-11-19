@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Hero } from './components/Hero';
 import { Loader } from './components/Loader';
 import { Nav } from './components/Nav';
 import { Everywhere, Mess, Shortcut, Wake } from './components/SectionsA';
-import { Finale, Install, Memory, Privacy, YourAi } from './components/SectionsB';
+import { Finale, Install, Memory, Privacy, WindowsSetup, YourAi } from './components/SectionsB';
 import { detectOS } from './site';
 
 export default function App() {
-  const os = useMemo(detectOS, []);
+  const [os, setOs] = useState(detectOS);
   const [loading, setLoading] = useState(true);
   const [showLoader, setShowLoader] = useState(true);
   const done = useCallback(() => setLoading(false), []);
@@ -22,17 +22,18 @@ export default function App() {
   return (
     <>
       {showLoader && <Loader leaving={!loading} onDone={done} />}
-      <Nav os={os} />
+      <Nav os={os} onOs={setOs} />
       <main>
         <Hero os={os} ready={!loading} />
         <Mess />
         <Shortcut os={os} />
-        <Wake />
+        <Wake os={os} />
         <Everywhere />
         <YourAi />
         <Memory />
         <Privacy os={os} />
-        <Install os={os} />
+        <Install os={os} onOs={setOs} />
+        <WindowsSetup />
         <Finale os={os} />
       </main>
     </>
