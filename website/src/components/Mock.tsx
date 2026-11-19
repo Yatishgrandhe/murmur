@@ -52,7 +52,7 @@ export function Pill({ state, text, level = 0.9, who = 'Claude' }: { state: Pill
 const NAV = [
   { id: 'ai', label: 'AI Rewrite', icon: <IconSparkle size={15} /> },
   { id: 'shortcut', label: 'Shortcut', icon: <IconKey size={15} /> },
-  { id: 'voice', label: 'Speech', icon: <IconWave size={15} /> },
+  { id: 'voice', label: 'Voice', icon: <IconWave size={15} /> },
   { id: 'dictionary', label: 'Dictionary', icon: <IconBook size={15} /> },
   { id: 'history', label: 'History', icon: <IconClock size={15} /> },
 ];
