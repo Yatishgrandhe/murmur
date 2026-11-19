@@ -20,9 +20,10 @@ what you meant to type, and pastes it into the app you're in: Slack, Gmail, VS C
   app, or your **ChatGPT Plus/Pro** plan through the official Codex app. Murmur never sees your password or tokens.
   API keys and a no-AI mode are there too.
 - **Fast.** About **1 second** from letting go of the key to finished text, on an M4 MacBook (measured below).
-- **Private speech-to-text.** Your audio never leaves your computer. Whisper runs on-device, on the GPU on Apple Silicon.
+- **Built-in speech-to-text, nothing to download.** Murmur uses the recognizer that ships with your OS: Apple's Speech
+  framework on macOS (on-device when your Mac supports it) and Microsoft's speech recognition on Windows.
   Only the transcript text goes to the AI you chose.
-- **Tiny.** The installer is under 5 MB and the app about 10 MB, plus a one-time 75–550 MB voice model you choose.
+- **Tiny.** The installer is about 5 MB and the app under 10 MB. No voice model to download.
 
 ## Install
 
@@ -31,7 +32,9 @@ what you meant to type, and pastes it into the app you're in: Slack, Gmail, VS C
      The first time you open it, **right-click Murmur → Open**, because the app isn't notarized by Apple yet.
    - **Windows 10/11:** `Murmur_x.y.z_x64-setup.exe`. If SmartScreen warns you, click **More info → Run anyway**.
 2. A setup window walks you through the rest:
-   1. **Download the voice model** (142 MB, one time).
+   1. **Turn on speech recognition.** macOS asks once to allow Speech Recognition. On Windows, turn on
+      Settings › Privacy & security › Speech › **Online speech recognition** (Windows dictation uses Microsoft's
+      speech service).
    2. **Connect your AI.** Pick Claude or ChatGPT and click **Install**, then **Sign in**. Each opens a terminal
       running the official installer or login, and Murmur notices automatically once you're signed in.
    3. **macOS only: allow pasting.** Turn Murmur on under System Settings › Privacy & Security › Accessibility.
@@ -71,7 +74,9 @@ not answered, and so does "ignore previous instructions…".
 If the AI fails (signed out, usage limit hit, offline), Murmur pastes your raw transcript and says why. You never lose
 what you said.
 
-## Measured (Apple M4, base.en model, Claude Haiku via a Pro plan)
+## Measured (Apple M4, Apple on-device speech, Claude Haiku via a Pro plan)
+
+Speech-to-text on a 3.7 s clip: 0.36–0.49 s. The table below is from the earlier Whisper engine.
 
 | Clip | Whisper | Release → text pasted |
 |---|---|---|
@@ -97,7 +102,7 @@ windows sit on screen, each pipeline stage with its time, and the final text. No
 
 ## Build from source
 
-Requirements: Rust (stable), Node 18+, CMake. On Windows you also need the Visual Studio C++ build tools and LLVM.
+Requirements: Rust (stable) and Node 18+. On Windows you also need the Visual Studio C++ build tools.
 
 ```bash
 npm install
@@ -116,7 +121,7 @@ Windows (`ci.yml`).
 src-tauri/src/
   lib.rs       shortcut state machine (hold / tap-for-hands-free / esc), pipeline, windows, tray, commands
   audio.rs     mic capture thread, live levels for the waves, 16 kHz resampling, silence gate, UI chimes
-  stt.rs       whisper.cpp (Metal on Apple Silicon), model catalog/download, hallucination filter
+  stt.rs       OS speech recognition: Apple Speech framework (macOS), Windows.Media.SpeechRecognition (Windows)
   llm.rs       rewrite prompt + styles, Claude Code / Codex / API providers, pre-warming, output cleanup
   cli.rs       finds the claude/codex CLIs (GUI apps get a bare PATH), login status, install/sign-in terminals
   paste.rs     clipboard + ⌘V/Ctrl+V, clipboard restore, macOS Accessibility check
@@ -137,5 +142,5 @@ ui/            overlay pill (canvas waves) and the settings / onboarding window.
 
 ## License
 
-Apache-2.0. Speech recognition by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) with OpenAI Whisper models (MIT).
+Apache-2.0. Speech recognition by the operating system (Apple Speech on macOS, Windows speech recognition on Windows).
 Murmur is an independent project and is not affiliated with Anthropic or OpenAI.

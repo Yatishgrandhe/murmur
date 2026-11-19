@@ -37,12 +37,6 @@ jobs:
         with:
           workspaces: src-tauri
           key: vs2022
-      - name: LLVM for bindgen
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install llvm -y --no-progress
-          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
       - run: npm ci
       - uses: tauri-apps/tauri-action@v0
         env:

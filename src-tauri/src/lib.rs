@@ -12,7 +12,6 @@ pub mod settings;
 pub mod stt;
 pub mod wake;
 
-use futures_util::StreamExt;
 use parking_lot::Mutex;
 use serde::Serialize;
 use settings::{HistoryItem, Settings};
@@ -37,6 +36,8 @@ enum Mode {
 struct Session {
     rec: audio::Recording,
     pending: Result<llm::Pending, String>,
+    /// Windows: the OS recognizer's own live session (macOS transcribes the recording instead).
+    live: Option<Result<stt::Live, String>>,
     started: Instant,
 }
 
@@ -44,7 +45,6 @@ pub struct Core {
     settings: Mutex<Settings>,
     mode: Mutex<Mode>,
     session: Mutex<Option<Session>>,
-    stt: stt::Stt,
     history: Mutex<Vec<HistoryItem>>,
     registered: Mutex<Option<String>>,
     vibrancy: Mutex<bool>,
@@ -141,10 +141,14 @@ fn on_release(app: &AppHandle) {
 
 fn begin(app: &AppHandle, c: &Arc<Core>, hands_free: bool) {
     let s = c.settings.lock().clone();
-    if !stt::installed(&s.model) {
+    let speech = stt::status();
+    if !speech.ready && c.test_audio.lock().is_none() {
         *c.mode.lock() = Mode::Idle;
-        emit_phase(app, "error", None, Some("Download a voice model to start dictating.".into()), false);
+        emit_phase(app, "error", None, Some(speech.detail.clone()), false);
         show_main(app, Some("voice"));
+        if speech.can_request {
+            std::thread::spawn(stt::request_access);
+        }
         return;
     }
     report("press", serde_json::json!({"provider": s.provider, "model": s.model, "accessibility": paste::accessibility_ok()}));
@@ -181,14 +185,13 @@ fn begin(app: &AppHandle, c: &Arc<Core>, hands_free: bool) {
         None => audio::Recording::start(on_level),
     };
     emit_phase(app, "listening", None, None, hands_free);
-    let _ = app.global_shortcut().register("Escape");
+    if std::env::var_os("MURMUR_SELFTEST").is_none() {
+        let _ = app.global_shortcut().register("Escape");
+    }
     // Warm up the rewriter now so its startup overlaps with speaking.
     let pending = llm::Pending::start(&s);
-    *c.session.lock() = Some(Session { rec, pending, started: Instant::now() });
-    let c2 = c.clone();
-    std::thread::spawn(move || {
-        let _ = c2.stt.ensure_loaded(&s.model);
-    });
+    let live = stt::start_live(&s.language, &s.dictionary);
+    *c.session.lock() = Some(Session { rec, pending, live, started: Instant::now() });
 }
 
 fn finish(app: &AppHandle, c: &Arc<Core>) {
@@ -229,6 +232,9 @@ fn cancel_with(app: &AppHandle, msg: &str) {
     report("cancel", serde_json::json!(null));
     if let Some(sess) = c.session.lock().take() {
         drop(sess.rec);
+        if let Some(Ok(l)) = sess.live {
+            std::thread::spawn(move || l.cancel());
+        }
         if let Ok(p) = sess.pending {
             std::thread::spawn(move || p.cancel());
         }
@@ -242,7 +248,7 @@ fn pipeline(app: &AppHandle, c: &Arc<Core>, sess: Session) {
         audio::blip(audio::Blip::Stop);
     }
     let t0 = Instant::now();
-    let Session { rec, pending, .. } = sess;
+    let Session { rec, pending, live, .. } = sess;
     let fail = |msg: String, pending: Result<llm::Pending, String>| {
         report("error", serde_json::json!(msg));
         if let Ok(p) = pending {
@@ -265,11 +271,17 @@ fn pipeline(app: &AppHandle, c: &Arc<Core>, sess: Session) {
         if let Ok(p) = pending {
             p.cancel();
         }
+        if let Some(Ok(l)) = live {
+            l.cancel();
+        }
         emit_phase(app, "idle", None, Some("Didn't catch that".into()), false);
         return;
     }
     emit_phase(app, "transcribing", None, None, false);
-    let raw = match c.stt.transcribe(&s.model, &audio, &s.language, &s.dictionary) {
+    let t_stt = Instant::now();
+    let heard = stt::transcribe(live, &audio, &s.language, &s.dictionary);
+    report("stt", serde_json::json!({"ms": t_stt.elapsed().as_millis() as u64, "ok": heard.is_ok()}));
+    let raw = match heard {
         Ok(t) => llm::apply_voice_commands(&t),
         Err(e) => return fail(e, pending),
     };
@@ -365,7 +377,7 @@ fn wake_loop(app: AppHandle, c: Arc<Core>) {
     let mut announced = false;
     loop {
         let s = c.settings.lock().clone();
-        if !s.wake_word || !stt::installed(&s.model) {
+        if !s.wake_word || !stt::status().ready {
             announced = false;
             std::thread::sleep(Duration::from_millis(700));
             continue;
@@ -374,6 +386,32 @@ fn wake_loop(app: AppHandle, c: Arc<Core>) {
             report("wake", serde_json::json!({"listening": true, "phrase": s.wake_phrase}));
             announced = true;
         }
+        #[cfg(windows)]
+        {
+            // Windows' offline phrase recognizer listens for the wake phrase itself.
+            let (c2, app2, phrase) = (c.clone(), app.clone(), s.wake_phrase.clone());
+            let stop = {
+                let (c3, phrase) = (c.clone(), phrase.clone());
+                move || {
+                    let s = c3.settings.lock();
+                    !s.wake_word || s.wake_phrase != phrase
+                }
+            };
+            let res = stt::listen_for_phrase(&phrase, &s.language, stop, move || {
+                if *c2.mode.lock() != Mode::Idle {
+                    return;
+                }
+                report("wake_hit", serde_json::json!({"with_command": false}));
+                let (a, c) = (app2.clone(), c2.clone());
+                std::thread::spawn(move || on_wake(&a, &c, String::new()));
+            });
+            if let Err(e) = res {
+                report("error", serde_json::json!(format!("wake word: {e}")));
+                std::thread::sleep(Duration::from_secs(5));
+            }
+            continue;
+        }
+        #[allow(unreachable_code)]
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let mut seg = wake::Segmenter::new();
         let (app2, c2, stop2) = (app.clone(), c.clone(), stop.clone());
@@ -389,7 +427,7 @@ fn wake_loop(app: AppHandle, c: Arc<Core>) {
             }
             for clip in seg.push(chunk) {
                 // only the wake check runs here: nothing is logged or sent unless it matches
-                let Ok(text) = c2.stt.transcribe(&s.model, &clip, &s.language, std::slice::from_ref(&s.wake_phrase)) else { continue };
+                let Ok(text) = stt::transcribe_private(&clip, &s.language, std::slice::from_ref(&s.wake_phrase)) else { continue };
                 let hit = wake::match_wake(&text, &s.wake_phrase);
                 // diagnostics without content: clip length and whether it matched, never the words
                 report("wake_clip", serde_json::json!({"seconds": clip.len() as f32 / 16_000.0, "matched": hit.is_some()}));
@@ -447,7 +485,7 @@ fn on_wake(app: &AppHandle, c: &Arc<Core>, rest: String) {
 
 /// Diagnostic log: always written to the app log (~/Library/Logs/Murmur/murmur.log on macOS),
 /// and also to MURMUR_REPORT during self-tests. Contains no audio, only what happened.
-fn report(kind: &str, data: serde_json::Value) {
+pub(crate) fn report(kind: &str, data: serde_json::Value) {
     let line = serde_json::json!({"t": now_ms(), "kind": kind, "data": data});
     let mut paths = vec![log_path()];
     if let Some(p) = std::env::var_os("MURMUR_REPORT") {
@@ -695,33 +733,13 @@ fn show_main(app: &AppHandle, section: Option<&str>) {
     }
 }
 
-/// Load the voice model in the background so the first dictation doesn't pay for it
-/// (the very first load also compiles GPU kernels, which can take several seconds).
-fn preload(c: &Arc<Core>) {
-    let c = c.clone();
-    std::thread::spawn(move || {
-        let model = c.settings.lock().model.clone();
-        if stt::installed(&model) {
-            let _ = c.stt.ensure_loaded(&model);
-        }
-    });
-}
-
 // ───────────────────────────── commands ─────────────────────────────
-
-#[derive(Serialize)]
-struct ModelState {
-    #[serde(flatten)]
-    info: stt::ModelInfo,
-    installed: bool,
-}
 
 #[tauri::command]
 fn get_state(c: CoreRef, app: AppHandle) -> serde_json::Value {
-    let models: Vec<ModelState> = stt::MODELS.iter().map(|m| ModelState { info: *m, installed: stt::installed(m.id) }).collect();
     serde_json::json!({
         "settings": *c.settings.lock(),
-        "models": models,
+        "speech": stt::status(),
         "history": *c.history.lock(),
         "platform": std::env::consts::OS,
         "vibrancy": *c.vibrancy.lock(),
@@ -737,15 +755,8 @@ fn save_settings(app: AppHandle, c: CoreRef, new: Settings) -> Result<(), String
     if new.shortcut != old.shortcut {
         register_shortcut(&app, &c, &new.shortcut)?;
     }
-    let model_changed = new.model != old.model;
-    if model_changed {
-        c.stt.unload();
-    }
     settings::save(&settings_path(), &new);
     *c.settings.lock() = new;
-    if model_changed {
-        preload(c.inner());
-    }
     Ok(())
 }
 
@@ -799,58 +810,20 @@ fn set_api_key(name: String, value: String) -> Result<(), String> {
     settings::set_secret(&name, value.trim())
 }
 
-#[derive(Serialize, Clone)]
-struct Progress {
-    id: String,
-    done: u64,
-    total: u64,
+/// Asks for speech-recognition access (macOS prompt; on Windows opens the Speech settings page).
+#[tauri::command]
+async fn request_speech() -> stt::Status {
+    tauri::async_runtime::spawn_blocking(|| {
+        stt::request_access();
+        stt::status()
+    })
+    .await
+    .unwrap_or_else(|_| stt::status())
 }
 
 #[tauri::command]
-async fn download_model(app: AppHandle, id: String) -> Result<(), String> {
-    let m = stt::model(&id).ok_or("Unknown model")?;
-    let dir = stt::models_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let part = dir.join(format!("{}.part", m.file));
-    let resp = reqwest::Client::new()
-        .get(stt::url(m))
-        .send()
-        .await
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| format!("Download failed: {e}"))?;
-    let total = resp.content_length().unwrap_or(m.size_mb as u64 * 1_000_000);
-    let mut f = std::fs::File::create(&part).map_err(|e| e.to_string())?;
-    let mut done = 0u64;
-    let mut last = Instant::now();
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Download interrupted: {e}"))?;
-        f.write_all(&chunk).map_err(|e| e.to_string())?;
-        done += chunk.len() as u64;
-        if last.elapsed() > Duration::from_millis(80) {
-            last = Instant::now();
-            let _ = app.emit("download", Progress { id: id.clone(), done, total });
-        }
-    }
-    f.flush().map_err(|e| e.to_string())?;
-    drop(f);
-    if done < total / 2 {
-        let _ = std::fs::remove_file(&part);
-        return Err("Download was incomplete. Try again.".into());
-    }
-    std::fs::rename(&part, dir.join(m.file)).map_err(|e| e.to_string())?;
-    preload(app.state::<Arc<Core>>().inner());
-    let _ = app.emit("download", Progress { id, done: total, total });
-    Ok(())
-}
-
-#[tauri::command]
-fn delete_model(c: CoreRef, id: String) -> Result<(), String> {
-    if c.settings.lock().model == id {
-        c.stt.unload();
-    }
-    let p = stt::model_path(&id).ok_or("Unknown model")?;
-    std::fs::remove_file(p).map_err(|e| e.to_string())
+async fn speech_status() -> stt::Status {
+    tauri::async_runtime::spawn_blocking(stt::status).await.unwrap_or_else(|_| stt::status())
 }
 
 #[derive(Serialize)]
@@ -934,7 +907,6 @@ pub fn run() {
         settings: Mutex::new(settings),
         mode: Mutex::new(Mode::Idle),
         session: Mutex::new(None),
-        stt: stt::Stt::new(),
         history: Mutex::new(history),
         registered: Mutex::new(None),
         vibrancy: Mutex::new(false),
@@ -967,8 +939,8 @@ pub fn run() {
             provider_status,
             setup_provider,
             set_api_key,
-            download_model,
-            delete_model,
+            request_speech,
+            speech_status,
             test_rewrite,
             clear_history,
             delete_history_item,
@@ -1098,14 +1070,21 @@ pub fn run() {
             }
 
             let first_run = { !state.settings.lock().onboarded };
-            let model = state.settings.lock().model.clone();
             // Opened by the user → show the window. Started at login (--background) or by a
             // self-test → stay quietly in the menu bar unless setup isn't finished.
             let background = std::env::args().any(|a| a == "--background") || std::env::var_os("MURMUR_SELFTEST").is_some();
-            if first_run || !stt::installed(&model) || !background {
+            if first_run || !background {
                 show_main(&handle, None);
             }
-            preload(&state);
+            // macOS asks once for Speech Recognition; do it now rather than on the first dictation
+            std::thread::spawn(|| {
+                let st = stt::status();
+                report("speech", serde_json::json!({"engine": st.engine, "ready": st.ready, "on_device": st.on_device}));
+                if st.can_request {
+                    let ok = stt::request_access();
+                    report("speech", serde_json::json!({"granted": ok}));
+                }
+            });
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -1115,10 +1094,6 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = ev {
                 show_main(app, None);
-            }
-            if let tauri::RunEvent::Exit = ev {
-                // whisper.cpp's Metal backend asserts if a model is still loaded at process exit
-                app.state::<Arc<Core>>().stt.unload();
             }
         });
 }

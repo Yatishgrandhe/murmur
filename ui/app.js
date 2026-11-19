@@ -6,7 +6,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 
 // ───────── bridge (with a mock so the UI can be previewed in a browser) ─────────
 const mock = (() => {
-  const s = { shortcut: 'Alt+Space', provider: 'claude', style: 'clean', custom_prompt: '', model: 'base.en', language: 'en', claude_model: 'haiku', codex_model: '', anthropic_model: 'claude-haiku-5-5', openai_model: 'gpt-5-mini', dictionary: ['Kubernetes', 'Murmur'], restore_clipboard: true, sounds: true, onboarded: !location.hash.includes('onboard') };
+  const s = { shortcut: 'Alt+Space', provider: 'claude', style: 'clean', custom_prompt: '', language: 'en', claude_model: 'haiku', codex_model: '', anthropic_model: 'claude-haiku-5-5', openai_model: 'gpt-5-mini', dictionary: ['Kubernetes', 'Murmur'], restore_clipboard: true, sounds: true, onboarded: !location.hash.includes('onboard') };
   const now = Date.now();
   const history = [
     { ts: now - 6e4, raw: 'um so can you send me the the report by friday no sorry thursday thanks', text: 'Can you send me the report by Thursday? Thanks!', provider: 'claude', seconds: 5.2, ms: 1180 },
@@ -14,14 +14,11 @@ const mock = (() => {
     { ts: now - 9e7, raw: 'ok sounds good', text: 'Ok, sounds good', provider: 'off', seconds: 1.1, ms: 310 },
   ];
   return {
-    get_state: () => ({ settings: s, history, platform: 'macos', vibrancy: false, defaultShortcut: 'Alt+Space', launchAtLogin: false, version: '0.2.0',
-      models: [
-        { id: 'tiny.en', label: 'Swift', blurb: 'Fastest · English', size_mb: 75, english_only: true, installed: false },
-        { id: 'base.en', label: 'Balanced', blurb: 'Recommended · English', size_mb: 142, english_only: true, installed: true },
-        { id: 'small.en', label: 'Precise', blurb: 'Most accurate · English', size_mb: 466, english_only: true, installed: false },
-        { id: 'large-v3-turbo-q5_0', label: 'Worldwide', blurb: 'Best quality · 99 languages', size_mb: 547, english_only: false, installed: false },
-      ] }),
+    get_state: () => ({ settings: s, history, platform: 'macos', vibrancy: false, defaultShortcut: 'Alt+Space', launchAtLogin: false, version: '0.3.0',
+      speech: { engine: 'apple', ready: true, can_request: false, on_device: true, detail: 'Apple speech recognition, on this Mac' } }),
     provider_status: () => ({ claude: { installed: true, logged_in: true, account: 'you@example.com', detail: 'Signed in with your Claude plan' }, codex: { installed: false, logged_in: false, detail: 'Not installed' }, anthropicKey: false, openaiKey: false, accessibility: false }),
+    speech_status: () => ({ engine: 'apple', ready: true, can_request: false, on_device: true, detail: 'Apple speech recognition, on this Mac' }),
+    request_speech: () => ({ engine: 'apple', ready: true, can_request: false, on_device: true, detail: 'Apple speech recognition, on this Mac' }),
     test_rewrite: async () => { await new Promise(r => setTimeout(r, 900)); return { text: "Let's push the deadline to Monday and let the team know ASAP. Thanks!", ms: 1120 }; },
   };
 })();
@@ -176,7 +173,7 @@ function renderDetail() {
     };
     $('#apimodel').onchange = e => save({ [mkey]: e.target.value.trim() });
   } else {
-    el.innerHTML = `<div class="pd"><div class="grow"><b>Raw transcript</b><p>Murmur pastes exactly what the on-device model heard: no AI, no network, near-instant.</p></div></div>`;
+    el.innerHTML = `<div class="pd"><div class="grow"><b>Raw transcript</b><p>Murmur pastes exactly what speech recognition heard, with no AI rewrite. Near-instant.</p></div></div>`;
   }
   $$('[data-setup]', el).forEach(b => b.onclick = async () => {
     try { const cmd = await invoke('setup_provider', { provider: id, action: b.dataset.setup }); toast(`Opened a terminal: ${cmd}`); pollProviders(); }
@@ -263,34 +260,39 @@ $('#autostart').onchange = async e => { try { await invoke('set_launch_at_login'
 $('#permBtn').onclick = () => invoke('open_privacy', { which: 'accessibility' });
 function renderPerm() { $('#permCard').classList.toggle('hidden', !isMac() || !ps || ps.accessibility); }
 
-// ───────── voice models ─────────
-const dl = {};   // id -> progress 0..1
-function renderModels() {
-  $('#models').innerHTML = st.models.map(m => {
-    const on = st.settings.model === m.id, p = dl[m.id];
-    const action = p != null ? `<button class="btn" disabled>Downloading ${Math.round(p * 100)}%</button>`
-      : m.installed ? (on ? `<span class="badge ok">In use</span>` : `<button class="btn primary" data-use="${m.id}">Use</button><button class="btn icon" data-rm="${m.id}" title="Delete"><i data-i="trash"></i></button>`)
-      : `<button class="btn" data-dl="${m.id}">Download</button>`;
-    return `<div class="model ${on && m.installed ? 'on' : ''}"><span class="size">${m.size_mb} MB</span><b>${m.label}</b><p>${m.blurb}</p><div class="row-btns">${action}</div>${p != null ? `<div class="bar" style="width:${p * 100}%"></div>` : ''}</div>`;
-  }).join('');
-  paintIcons($('#models'));
-  $$('[data-dl]').forEach(b => b.onclick = () => download(b.dataset.dl));
-  $$('[data-use]').forEach(b => b.onclick = async () => { await save({ model: b.dataset.use }); renderModels(); renderStatus(); });
-  $$('[data-rm]').forEach(b => b.onclick = async () => { await invoke('delete_model', { id: b.dataset.rm }); st = await invoke('get_state'); renderModels(); });
+// ───────── voice (the OS's built-in speech recognition) ─────────
+const speechOk = () => !!st.speech?.ready;
+function renderSpeech() {
+  const sp = st.speech || {}, mac = isMac();
+  const name = mac ? 'Apple Speech' : 'Windows Speech';
+  const where = mac
+    ? (sp.on_device ? 'Runs on this Mac. Your audio stays here.' : "Uses Apple's speech recognition. On Macs without on-device support, audio is sent to Apple to be transcribed.")
+    : "Uses Microsoft's online speech recognition, built into Windows. Audio is sent to Microsoft while you dictate.";
+  const action = sp.ready ? '<span class="badge ok">Ready</span>'
+    : `<button class="btn primary" id="speechBtn">${mac ? (sp.can_request ? 'Allow Speech Recognition' : 'Open Privacy Settings') : 'Open Speech Settings'}</button>`;
+  $('#models').innerHTML = `<div class="card speech">
+    <div class="pd"><div class="grow"><b>${name}</b><p>${esc(sp.ready ? where : sp.detail || '')}</p></div>${action}</div>
+    <p class="muted" style="margin:12px 0 0">Built into ${mac ? 'macOS' : 'Windows'}, so there's nothing to download. Murmur's AI rewrite then fixes punctuation, filler words and mistakes.</p>
+    ${!mac && !sp.ready ? '<p class="muted" style="margin:8px 0 0">In Settings → Privacy &amp; security → Speech, turn on <b>Online speech recognition</b>, then come back.</p>' : ''}
+  </div>`;
+  const b = $('#speechBtn'); if (b) b.onclick = requestSpeech;
   $('#language').value = st.settings.language;
 }
-async function download(id, use = true) {
-  dl[id] = 0; renderModels(); renderOb();
-  try {
-    await invoke('download_model', { id });
-    delete dl[id];
-    st.models.find(m => m.id === id).installed = true;
-    if (use) await save({ model: id });
-    toast('Voice model ready');
-  } catch (e) { delete dl[id]; toast(String(e)); }
-  renderModels(); renderStatus(); renderOb();
+async function requestSpeech() {
+  if (isMac() && !st.speech?.can_request) invoke('open_privacy', { which: 'speech' });
+  st.speech = await invoke('request_speech');
+  pollSpeech();
 }
-listen('download', p => { dl[p.id] = p.total ? p.done / p.total : 0; if (p.done < p.total) { renderModels(); updateRing(); } });
+let speechTimer = null;
+function pollSpeech() {
+  clearInterval(speechTimer); let n = 0;
+  const tick = async () => {
+    st.speech = await invoke('speech_status');
+    renderSpeech(); renderStatus(); renderOb();
+    if (st.speech.ready || ++n > 60) clearInterval(speechTimer);
+  };
+  tick(); speechTimer = setInterval(tick, 2000);
+}
 $('#language').onchange = e => save({ language: e.target.value });
 
 // ───────── dictionary ─────────
@@ -316,10 +318,9 @@ $('#clearHist').onclick = async () => { await invoke('clear_history'); st.histor
 function renderStatus(phase) {
   const s = $('#status'), t = $('#statusText');
   s.className = 'status';
-  const model = st.models.find(m => m.id === st.settings.model);
   if (phase === 'listening') { s.classList.add('live'); t.textContent = 'Listening…'; return; }
   if (phase === 'transcribing' || phase === 'rewriting') { s.classList.add('live'); t.textContent = phase === 'rewriting' ? 'Polishing…' : 'Transcribing…'; return; }
-  if (!model?.installed) { s.classList.add('warn'); t.textContent = 'Download a voice model'; return; }
+  if (!speechOk()) { s.classList.add('warn'); t.textContent = isMac() ? 'Allow Speech Recognition' : 'Turn on Windows speech'; return; }
   if (ps && provState(st.settings.provider) !== 'ok') { s.classList.add('warn'); t.textContent = `${PROV[st.settings.provider].name} not connected`; return; }
   if (ps && isMac() && !ps.accessibility) { s.classList.add('warn'); t.innerHTML = `Ready · <span class="keys sm">${keysHTML(st.settings.shortcut)}</span> · results copied, ⌘V`; return; }
   t.innerHTML = `Ready · <span class="keys sm">${keysHTML(st.settings.shortcut)}</span>`;
@@ -375,10 +376,6 @@ function waves(canvas, energyFn, cyFrac = .42) {
 let obStep = 0, obDone = false;
 const OB_STEPS = () => isMac() ? 5 : 4;   // permissions step is macOS only
 function obIndex(i) { return !isMac() && i >= 3 ? i + 1 : i; }
-function updateRing() {
-  const p = dl['base.en']; const c = $('#obRing'); if (!c || p == null) return;
-  c.style.strokeDashoffset = 289 * (1 - p); $('#obPct').textContent = `${Math.round(p * 100)}%`;
-}
 function renderObIfAI() { if (!$('#onboard').classList.contains('hidden') && obIndex(obStep) === 2) renderOb(); }
 function renderOb() {
   const ob = $('#onboard'); if (ob.classList.contains('hidden')) return;
@@ -388,12 +385,13 @@ function renderOb() {
   if (step === 0) {
     b.innerHTML = `<h1>Meet Murmur</h1><p>Talk in any app. Murmur turns your voice into clean, well-written text in about a second.</p>${next('Get started')}`;
   } else if (step === 1) {
-    const m = st.models.find(x => x.id === 'base.en'), p = dl['base.en'], ready = st.models.some(x => x.installed);
-    b.innerHTML = `<h1>${ready ? 'Voice model ready' : 'Download the voice model'}</h1>
-      <p>${ready ? 'Speech-to-text runs privately on this computer.' : `A one-time ${m.size_mb} MB download. Your voice is turned into text on this computer and never uploaded.`}</p>
-      ${p != null ? `<div class="ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="6"/><circle id="obRing" cx="50" cy="50" r="46" fill="none" stroke="url(#rg)" stroke-width="6" stroke-linecap="round" stroke-dasharray="289" stroke-dashoffset="289" style="transition:stroke-dashoffset .2s"/><defs><linearGradient id="rg"><stop offset="0" stop-color="rgb(80,220,255)"/><stop offset=".5" stop-color="rgb(150,110,255)"/><stop offset="1" stop-color="rgb(255,90,190)"/></linearGradient></defs></svg><div class="pct" id="obPct">0%</div></div>` : ''}
-      ${ready ? next() : p != null ? '' : next(`Download · ${m.size_mb} MB`)}`;
-    updateRing();
+    const ready = speechOk(), mac = isMac();
+    b.innerHTML = `<h1>${ready ? 'Ready to listen' : mac ? 'Allow speech recognition' : 'Turn on Windows speech'}</h1>
+      <p>${ready ? `Murmur uses the speech recognition built into ${mac ? 'macOS' : 'Windows'}. Nothing to download.`
+        : mac ? 'Murmur uses Apple\'s built-in speech recognition, so there\'s nothing to download. macOS will ask once for permission.'
+        : 'Murmur uses the speech recognition built into Windows. In Settings → Privacy &amp; security → Speech, turn on Online speech recognition.'}</p>
+      ${next(ready ? 'Continue' : 'Skip for now', ready ? '' : `<button class="btn" id="obSpeech">${mac ? 'Allow' : 'Open Speech Settings'}</button>`)}`;
+    const sb = $('#obSpeech'); if (sb) sb.onclick = requestSpeech;
   } else if (step === 2) {
     const opt = (id, extra) => { const p = PROV[id], s = provState(id); return `<div class="ob-opt ${st.settings.provider === id ? 'on' : ''}" data-p="${id}"><div class="logo" style="background:${p.color}">${ICON[p.icon]}</div><div><b>${p.name}</b><span>${extra}</span></div><span class="st ${s === 'ok' && id !== 'off' ? 'ok' : ''}">${id === 'off' ? 'No AI' : s === 'ok' ? 'Connected' : s === 'half' ? 'Sign in' : 'Set up'}</span></div>`; };
     const sel = st.settings.provider, s = ps?.[sel];
@@ -420,7 +418,6 @@ function renderOb() {
   }
   const n = $('#obNext');
   if (n) n.onclick = async () => {
-    if (step === 1 && !st.models.some(x => x.installed)) return download('base.en');
     if (obStep >= OB_STEPS() - 1) { await save({ onboarded: true }); ob.classList.add('hidden'); renderAll(); return; }
     obStep++; renderOb();
   };
@@ -431,7 +428,7 @@ function pollPerm() {
 
 // ───────── boot ─────────
 function renderAll() {
-  paintShortcut(); renderHome(); renderProviders(); renderStyle(); renderModels(); renderChips(); renderHistory(); renderStatus(); renderPerm();
+  paintShortcut(); renderHome(); renderProviders(); renderStyle(); renderSpeech(); renderChips(); renderHistory(); renderStatus(); renderPerm();
   $('#sounds').checked = st.settings.sounds; $('#restore').checked = st.settings.restore_clipboard; $('#autostart').checked = st.launchAtLogin;
   $('#wakeWord').checked = !!st.settings.wake_word; $('#wakePhrase').value = st.settings.wake_phrase || 'Hey Murmur'; $('#wakeRow').classList.toggle('hidden', !st.settings.wake_word);
 }
@@ -455,7 +452,7 @@ function dismissSplash() {
   const r = $('.app').getBoundingClientRect();
   invoke('ui_report', { page: 'main', data: {
     onboardingVisible: !$('#onboard').classList.contains('hidden'), onboardingTitle: $('#obBody h1')?.textContent,
-    providerCards: $$('#providers .prov').length, modelCards: $$('#models .model').length, navItems: $$('#nav a').length,
+    providerCards: $$('#providers .prov').length, speechCard: !!$('#models .speech'), navItems: $$('#nav a').length,
     status: $('#statusText').innerText, layout: [Math.round(r.width), Math.round(r.height)], vibrancy: st.vibrancy,
     dark: matchMedia('(prefers-color-scheme: dark)').matches, claude: ps?.claude?.detail, codex: ps?.codex?.detail, accessibility: ps?.accessibility,
   } }).catch(() => {});

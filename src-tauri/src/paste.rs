@@ -115,7 +115,7 @@ pub fn request_accessibility() -> bool {
 pub fn open_privacy_pane(which: &str) {
     #[cfg(target_os = "macos")]
     {
-        let anchor = if which == "mic" { "Privacy_Microphone" } else { "Privacy_Accessibility" };
+        let anchor = match which { "mic" => "Privacy_Microphone", "speech" => "Privacy_SpeechRecognition", _ => "Privacy_Accessibility" };
         let _ = std::process::Command::new("open")
             .arg(format!("x-apple.systempreferences:com.apple.preference.security?{anchor}"))
             .spawn();

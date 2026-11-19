@@ -18,13 +18,13 @@
       <div class="drag" data-tauri-drag-region></div>
       <div class="brand" data-tauri-drag-region>
         <img src="logo.png" alt="" />
-        <div><b>Murmur</b><span id="ver">v0.2</span></div>
+        <div><b>Murmur</b><span id="ver">v0.3</span></div>
       </div>
       <nav id="nav">
         <a data-s="home" class="on"><i data-i="home"></i>Home</a>
         <a data-s="ai"><i data-i="spark"></i>AI Rewrite</a>
         <a data-s="shortcut"><i data-i="key"></i>Shortcut</a>
-        <a data-s="voice"><i data-i="wave"></i>Voice Model</a>
+        <a data-s="voice"><i data-i="wave"></i>Voice</a>
         <a data-s="dictionary"><i data-i="book"></i>Dictionary</a>
         <a data-s="history"><i data-i="clock"></i>History</a>
       </nav>
@@ -116,12 +116,12 @@
 
       <!-- VOICE -->
       <section data-s="voice">
-        <header><h2>Voice Model</h2><p>Speech is turned into text right here on your computer. Your audio never leaves it.</p></header>
+        <header><h2>Voice</h2><p>Murmur uses the speech recognition built into your computer. Nothing to download.</p></header>
         <div class="models" id="models"></div>
         <div class="card">
-          <div class="card-h"><h3>Language</h3><span class="muted">For the Worldwide model</span></div>
+          <div class="card-h"><h3>Language</h3><span class="muted">The language you speak</span></div>
           <select id="language" class="field">
-            <option value="auto">Detect automatically</option>
+            <option value="auto">System language</option>
             <option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option>
             <option value="de">German</option><option value="it">Italian</option><option value="pt">Portuguese</option>
             <option value="hi">Hindi</option><option value="te">Telugu</option><option value="ta">Tamil</option>

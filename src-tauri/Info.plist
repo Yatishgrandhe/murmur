@@ -3,7 +3,9 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Murmur listens only while you hold your dictation shortcut, and turns your voice into text on this Mac.</string>
+  <string>Murmur listens only while you hold your dictation shortcut, and while the wake word is on.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Murmur turns what you say into text with Apple's speech recognition, on this Mac when it can.</string>
   <key>LSUIElement</key>
   <true/>
 </dict>

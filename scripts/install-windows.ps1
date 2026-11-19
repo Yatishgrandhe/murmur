@@ -1,17 +1,13 @@
 # Build Murmur from source on Windows, install it for the current user, and start it.
 #
-# Needs: Rust (https://rustup.rs), Node 18+, Visual Studio 2022 Build Tools (C++ workload),
-# CMake and LLVM (for whisper.cpp). Quick setup with winget:
-#   winget install Rustlang.Rustup OpenJS.NodeJS.LTS Kitware.CMake LLVM.LLVM
+# Needs: Rust (https://rustup.rs), Node 18+ and Visual Studio 2022 Build Tools (C++ workload).
+# Quick setup with winget:
+#   winget install Rustlang.Rustup OpenJS.NodeJS.LTS
 #   winget install Microsoft.VisualStudio.2022.BuildTools --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive"
 #
 # Usage (PowerShell, from the repo root):  powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
-
-if (-not $env:LIBCLANG_PATH -and (Test-Path "C:\Program Files\LLVM\bin")) {
-    $env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
-}
 
 npm ci
 npx tauri build --bundles nsis
@@ -26,4 +22,4 @@ Start-Process $installer.FullName -ArgumentList "/S" -Wait   # silent, per-user 
 $exe = Join-Path $env:LOCALAPPDATA "Murmur\murmur.exe"
 if (-not (Test-Path $exe)) { $exe = Join-Path $env:LOCALAPPDATA "Programs\Murmur\murmur.exe" }
 Start-Process $exe
-Write-Host "Murmur installed and running. Tap Ctrl+Shift+Space, speak, and pause."
+Write-Host "Murmur installed and running. Turn on Settings > Privacy & security > Speech > Online speech recognition, then tap Ctrl+Shift+Space, speak, and pause."

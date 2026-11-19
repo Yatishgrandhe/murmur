@@ -1,6 +1,6 @@
 [package]
 name = "murmur"
-version = "0.2.1"
+version = "0.3.0"
 description = "Hold a key, speak, get polished text in any app."
 edition = "2021"
 license = "Apache-2.0"
@@ -23,24 +23,26 @@ parking_lot = "0.12"
 cpal = "0.15"
 arboard = "3"
 enigo = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking", "stream"] }
-futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 which = "7"
 dirs = "6"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 window-vibrancy = "0.6"
 hound = "3"
+tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 objc2 = "0.6"
-whisper-rs = { version = "0.16", features = ["metal"] }
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-whisper-rs = "0.16"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSLocale", "NSArray", "NSError", "NSSet", "NSOperation"] }
+objc2-speech = { version = "0.3", default-features = false, features = ["std", "block2", "SFSpeechRecognizer", "SFSpeechRecognitionRequest", "SFSpeechRecognitionResult", "SFSpeechRecognitionTask", "SFTranscription"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Media_SpeechRecognition", "Foundation", "Foundation_Collections", "Globalization", "Win32_System_WinRT"] }
+windows-collections = "0.3"
+windows-future = "0.3"
 
 [profile.release]
 opt-level = 3
