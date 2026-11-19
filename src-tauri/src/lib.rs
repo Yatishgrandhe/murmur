@@ -1090,6 +1090,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Murmur")
         .run(|app, ev| {
+            let _ = (&app, &ev); // only used on macOS
             // clicking Murmur in Finder/Spotlight/Dock while it's already running
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = ev {
