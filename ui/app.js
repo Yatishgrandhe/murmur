@@ -14,9 +14,13 @@ const mock = (() => {
     { ts: now - 9e7, raw: 'ok sounds good', text: 'Ok, sounds good', provider: 'off', seconds: 1.1, ms: 310 },
   ];
   return {
-    get_state: () => ({ settings: s, history, platform: 'macos', vibrancy: false, defaultShortcut: 'Alt+Space', launchAtLogin: false, version: '0.3.0',
+    get_state: () => ({ settings: s, history, platform: 'macos', vibrancy: false, defaultShortcut: 'Alt+Space', launchAtLogin: false, version: '0.4.0',
       speech: { engine: 'apple', ready: true, can_request: false, on_device: true, detail: 'Apple speech recognition, on this Mac' } }),
-    provider_status: () => ({ claude: { installed: true, logged_in: true, account: 'you@example.com', detail: 'Signed in with your Claude plan' }, codex: { installed: false, logged_in: false, detail: 'Not installed' }, anthropicKey: false, openaiKey: false, accessibility: false }),
+    permissions: () => ({ mic: 'granted', speech: 'granted', accessibility: 'not_asked', all_granted: false, not_installed: false }),
+    request_permission: () => ({ mic: 'granted', speech: 'granted', accessibility: 'granted', all_granted: true, not_installed: false }),
+    verify_provider: async () => { await new Promise(r => setTimeout(r, 1200)); return { ok: true, ms: 1100 }; },
+    find_installers: () => [],
+    provider_status: () => ({ verified: { claude: true }, claude: { installed: true, logged_in: true, account: 'you@example.com', detail: 'Signed in with your Claude plan' }, codex: { installed: false, logged_in: false, detail: 'Not installed' }, anthropicKey: false, openaiKey: false, accessibility: false }),
     speech_status: () => ({ engine: 'apple', ready: true, can_request: false, on_device: true, detail: 'Apple speech recognition, on this Mac' }),
     request_speech: () => ({ engine: 'apple', ready: true, can_request: false, on_device: true, detail: 'Apple speech recognition, on this Mac' }),
     test_rewrite: async () => { await new Promise(r => setTimeout(r, 900)); return { text: "Let's push the deadline to Monday and let the team know ASAP. Thanks!", ms: 1120 }; },
@@ -83,12 +87,33 @@ const PROV = {
   openai: { name: 'OpenAI API', sub: 'Pay-as-you-go key', color: 'linear-gradient(135deg,#4a4a55,#1c1c22)', icon: 'gpt' },
   off: { name: 'No rewrite', sub: 'Raw transcript, instant', color: 'linear-gradient(135deg,#9a9aa3,#6c6c75)', icon: 'off' },
 };
+// "ok" only after a real test message went through the user's account (or a dictation did);
+// signed in but unverified is "half".
 function provState(id) {
   if (!ps) return '';
-  if (id === 'claude' || id === 'codex') return ps[id].logged_in ? 'ok' : ps[id].installed ? 'half' : '';
-  if (id === 'anthropic') return ps.anthropicKey ? 'ok' : '';
-  if (id === 'openai') return ps.openaiKey ? 'ok' : '';
-  return 'ok';
+  if (id === 'off') return 'ok';
+  if (ps.verified?.[id]) return 'ok';
+  if (id === 'claude' || id === 'codex') return ps[id].installed ? 'half' : '';
+  return (id === 'anthropic' ? ps.anthropicKey : ps.openaiKey) ? 'half' : '';
+}
+const signedIn = id => !!ps && (id === 'claude' || id === 'codex' ? ps[id].logged_in : id === 'anthropic' ? ps.anthropicKey : id === 'openai' ? ps.openaiKey : true);
+const verifying = {}, verifyErr = {};
+async function verifyProvider(id, quiet) {
+  if (verifying[id]) return;
+  verifying[id] = true; delete verifyErr[id]; renderDetail(); renderOb();
+  try {
+    const r = await invoke('verify_provider', { provider: id });
+    if (!r.ok) verifyErr[id] = r.error || 'The test message failed.';
+    else if (!quiet) toast(`${PROV[id].name} connected`);
+  } catch (e) { verifyErr[id] = String(e); }
+  verifying[id] = false;
+  await refreshProviders();
+}
+// Signed in but never verified: check once automatically (one short test message).
+function autoVerify() {
+  const id = st.settings.provider;
+  if (id === 'off' || !ps || ps.verified?.[id] || verifying[id] || verifyErr[id] || !signedIn(id)) return;
+  verifyProvider(id, true);
 }
 
 // ───────── navigation ─────────
@@ -143,12 +168,20 @@ function renderProviders() {
 function cliDetail(id) {
   const s = ps?.[id] || {}; const p = PROV[id];
   const tool = id === 'claude' ? 'Claude Code' : 'Codex';
+  if (s.logged_in && !ps.verified?.[id]) {
+    const busy = verifying[id], err = verifyErr[id];
+    return `<div class="pd"><div class="logo prov-logo" style="background:${p.color};width:40px;height:40px;border-radius:11px;display:grid;place-items:center">${ICON[p.icon]}</div>
+      <div class="grow"><b>${busy ? `Checking your ${p.name} connection…` : err ? `Couldn't reach ${p.name}` : 'Signed in, not verified yet'}</b>
+      <p>${busy ? 'Sending one short test message through your account.' : err ? esc(err) : `Murmur sends one short test message through your ${p.name} account to make sure it works.`}</p></div>
+      ${busy ? '<span class="badge">Checking…</span>' : `<button class="btn primary" id="verifyBtn">${err ? 'Try again' : 'Verify'}</button>`}</div>
+      ${err ? `<ol class="steps"><li class="done">Install ${tool}</li><li>Sign in again with your ${p.name} account<button class="btn" data-setup="login">Sign in</button></li></ol>` : ''}`;
+  }
   if (s.logged_in) {
     const models = id === 'claude'
       ? `<div class="sub-seg"><span class="muted">Model</span><div class="seg" id="cmodel">${['haiku', 'sonnet'].map(m => `<button data-v="${m}" class="${st.settings.claude_model === m ? 'on' : ''}">${m === 'haiku' ? 'Haiku · fastest' : 'Sonnet · smartest'}</button>`).join('')}</div></div>`
       : `<p class="muted" style="margin:12px 0 0">ChatGPT plans run Codex's full model, so rewrites take about 3 seconds. Claude Haiku takes about 1.</p><div class="keyrow"><input class="field" id="cxmodel" placeholder="Model (leave empty for your Codex default)" value="${esc(st.settings.codex_model)}"></div>`;
     return `<div class="pd"><div class="logo prov-logo" style="background:${p.color};width:40px;height:40px;border-radius:11px;display:grid;place-items:center">${ICON[p.icon]}</div>
-      <div class="grow"><b>Connected to ${p.name}</b><p>${esc(s.detail)}${s.account ? ' · ' + esc(s.account) : ''}. Rewrites count toward your plan's normal usage.</p></div>
+      <div class="grow"><b>Connected to ${p.name}</b><p>${esc(s.detail)}${s.account ? ' · ' + esc(s.account) : ''}. Verified with a test message. Rewrites count toward your plan's normal usage.</p></div>
       <span class="badge ok">Ready</span></div>${models}`;
   }
   return `<div class="pd"><div class="grow"><b>Connect your ${p.name} plan</b>
@@ -157,7 +190,9 @@ function cliDetail(id) {
     <ol class="steps">
       <li class="${s.installed ? 'done' : ''}">Install ${tool}${s.installed ? '' : `<button class="btn primary" data-setup="install">Install</button>`}</li>
       <li class="${s.logged_in ? 'done' : ''}">Sign in with your ${p.name} account<button class="btn ${s.installed ? 'primary' : ''}" data-setup="login" ${s.installed ? '' : 'disabled'}>Sign in</button></li>
-    </ol>`;
+      <li>Murmur verifies the connection with one short test message</li>
+    </ol>
+    <p class="muted" style="margin:10px 0 0">Sign in opens a terminal running ${tool}'s own login. You sign in on ${id === 'claude' ? 'claude.ai' : 'chatgpt.com'}; Murmur never sees your password.</p>`;
 }
 function renderDetail() {
   const id = st.settings.provider, el = $('#providerDetail');
@@ -165,7 +200,9 @@ function renderDetail() {
   else if (id === 'anthropic' || id === 'openai') {
     const has = id === 'anthropic' ? ps?.anthropicKey : ps?.openaiKey;
     const mkey = id === 'anthropic' ? 'anthropic_model' : 'openai_model';
-    el.innerHTML = `<div class="pd"><div class="grow"><b>${PROV[id].name} key</b><p>Stored in your system keychain, never in a file. Billed by ${id === 'anthropic' ? 'Anthropic' : 'OpenAI'} per use.</p></div>${has ? '<span class="badge ok">Saved</span>' : ''}</div>
+    const ver = ps?.verified?.[id], busy = verifying[id], err = verifyErr[id];
+    const badge = !has ? '' : ver ? '<span class="badge ok">Verified</span>' : busy ? '<span class="badge">Checking…</span>' : `<button class="btn" id="verifyBtn">${err ? 'Try again' : 'Verify'}</button>`;
+    el.innerHTML = `<div class="pd"><div class="grow"><b>${PROV[id].name} key</b><p>${err ? esc(err) : `Stored in your system keychain, never in a file. Billed by ${id === 'anthropic' ? 'Anthropic' : 'OpenAI'} per use.`}</p></div>${badge}</div>
       <div class="keyrow"><input type="password" class="field" id="apikey" placeholder="${has ? '•••••••••••••••• (saved, type to replace)' : id === 'anthropic' ? 'sk-ant-…' : 'sk-…'}"><button class="btn primary" id="saveKey">Save</button></div>
       <div class="keyrow"><input class="field" id="apimodel" value="${esc(st.settings[mkey])}" placeholder="Model"></div>`;
     $('#saveKey').onclick = async () => {
@@ -180,12 +217,14 @@ function renderDetail() {
     catch (e) { toast(String(e)); }
   });
   const re = $('#recheck', el); if (re) re.onclick = () => refreshProviders(true);
+  const vb = $('#verifyBtn', el); if (vb) vb.onclick = () => { delete verifyErr[id]; verifyProvider(id); };
   $$('#cmodel button', el).forEach(b => b.onclick = async () => { await save({ claude_model: b.dataset.v }); renderDetail(); });
   const cx = $('#cxmodel', el); if (cx) cx.onchange = e => save({ codex_model: e.target.value.trim() });
 }
 async function refreshProviders(announce) {
   ps = await invoke('provider_status');
   renderProviders(); renderStatus(); renderPerm();
+  autoVerify();
   if (announce) toast(provState(st.settings.provider) === 'ok' ? 'All set' : 'Not connected yet');
   return ps;
 }
@@ -321,7 +360,7 @@ function renderStatus(phase) {
   if (phase === 'listening') { s.classList.add('live'); t.textContent = 'Listening…'; return; }
   if (phase === 'transcribing' || phase === 'rewriting') { s.classList.add('live'); t.textContent = phase === 'rewriting' ? 'Polishing…' : 'Transcribing…'; return; }
   if (!speechOk()) { s.classList.add('warn'); t.textContent = isMac() ? 'Allow Speech Recognition' : 'Turn on Windows speech'; return; }
-  if (ps && provState(st.settings.provider) !== 'ok') { s.classList.add('warn'); t.textContent = `${PROV[st.settings.provider].name} not connected`; return; }
+  if (ps && provState(st.settings.provider) !== 'ok') { s.classList.add('warn'); t.textContent = verifying[st.settings.provider] ? `Checking ${PROV[st.settings.provider].name}…` : `${PROV[st.settings.provider].name} not connected`; return; }
   if (ps && isMac() && !ps.accessibility) { s.classList.add('warn'); t.innerHTML = `Ready · <span class="keys sm">${keysHTML(st.settings.shortcut)}</span> · results copied, ⌘V`; return; }
   t.innerHTML = `Ready · <span class="keys sm">${keysHTML(st.settings.shortcut)}</span>`;
 }
@@ -333,7 +372,7 @@ listen('phase', p => {
   if (p.phase === 'done' || p.phase === 'error' || p.phase === 'idle') setTimeout(() => renderStatus(), 1200);
 });
 listen('history-changed', async () => { const s = await invoke('get_state'); st.history = s.history; renderHome(); renderHistory(); });
-listen('navigate', s => go(s));
+listen('navigate', s => s === 'setup' ? openSetup() : go(s));
 listen('settings-changed', async () => { const s = await invoke('get_state'); st.settings = s.settings; renderStyle(); });
 window.addEventListener('focus', () => { if (st) refreshProviders(); });
 
@@ -373,44 +412,100 @@ function waves(canvas, energyFn, cyFrac = .42) {
 }
 
 // ───────── onboarding ─────────
-let obStep = 0, obDone = false;
-const OB_STEPS = () => isMac() ? 5 : 4;   // permissions step is macOS only
-function obIndex(i) { return !isMac() && i >= 3 ? i + 1 : i; }
-function renderObIfAI() { if (!$('#onboard').classList.contains('hidden') && obIndex(obStep) === 2) renderOb(); }
+// Steps are worked out from what's actually missing, so anything already granted or connected
+// (a reinstall, a second Mac with the same account) is skipped instead of asked again.
+let perms = null, obPlan = ['try'], obStep = 0, obDone = false, permPoll = null;
+function obNeeded({ welcome = true, tryIt = true } = {}) {
+  const steps = [];
+  if (welcome && !st.settings.onboarded && !st.history.length) steps.push('welcome');
+  if (!perms?.all_granted) steps.push('perms');
+  if (provState(st.settings.provider) !== 'ok') steps.push('ai');
+  if (tryIt) steps.push('try');
+  return steps;
+}
+function openOnboarding(plan) {
+  obPlan = plan; obStep = 0; obDone = false;
+  const ob = $('#onboard');
+  if (ob.classList.contains('hidden')) { ob.classList.remove('hidden'); waves($('#obWave'), () => .6); }
+  renderOb();
+}
+// A key press found something missing: open setup at the first missing step.
+async function openSetup() {
+  perms = await invoke('permissions'); await refreshProviders();
+  const plan = obNeeded({ welcome: false, tryIt: false });
+  if (plan.length) openOnboarding(plan); else go('voice');
+}
+function renderObIfAI() { if (!$('#onboard').classList.contains('hidden') && obPlan[obStep] === 'ai') renderOb(); }
+function watchPerms(on) {
+  clearInterval(permPoll);
+  if (on) permPoll = setInterval(async () => { const before = JSON.stringify(perms); perms = await invoke('permissions'); if (JSON.stringify(perms) !== before) renderOb(); }, 1500);
+}
+const PERM_INFO = () => isMac() ? [
+  ['mic', 'Microphone', 'So Murmur can hear you, only while you hold the shortcut (or while the wake word is on, if you turn it on).'],
+  ['speech', 'Speech Recognition', "Apple's built-in speech-to-text turns your voice into words, on this Mac when it can."],
+  ['accessibility', 'Accessibility', "Lets Murmur press ⌘V to paste where your cursor is. Optional: without it, text is copied and you paste it yourself."],
+] : [
+  ['mic', 'Microphone', 'Settings › Privacy & security › Microphone: turn on "Let desktop apps access your microphone".'],
+  ['speech', 'Online speech recognition', "Settings › Privacy & security › Speech. Windows' built-in dictation; audio is sent to Microsoft while you dictate."],
+];
 function renderOb() {
   const ob = $('#onboard'); if (ob.classList.contains('hidden')) return;
-  $('#obDots').innerHTML = Array.from({ length: OB_STEPS() }, (_, i) => `<i class="${i === obStep ? 'on' : ''}"></i>`).join('');
-  const b = $('#obBody'), step = obIndex(obStep);
+  const step = obPlan[obStep] || 'try';
+  watchPerms(step === 'perms');
+  $('#obDots').innerHTML = obPlan.length > 1 ? obPlan.map((_, i) => `<i class="${i === obStep ? 'on' : ''}"></i>`).join('') : '';
+  const b = $('#obBody');
   const next = (label = 'Continue', extra = '') => `<div class="ob-actions">${extra}<button class="btn primary" id="obNext">${label}</button></div>`;
-  if (step === 0) {
-    b.innerHTML = `<h1>Meet Murmur</h1><p>Talk in any app. Murmur turns your voice into clean, well-written text in about a second.</p>${next('Get started')}`;
-  } else if (step === 1) {
-    const ready = speechOk(), mac = isMac();
-    b.innerHTML = `<h1>${ready ? 'Ready to listen' : mac ? 'Allow speech recognition' : 'Turn on Windows speech'}</h1>
-      <p>${ready ? `Murmur uses the speech recognition built into ${mac ? 'macOS' : 'Windows'}. Nothing to download.`
-        : mac ? 'Murmur uses Apple\'s built-in speech recognition, so there\'s nothing to download. macOS will ask once for permission.'
-        : 'Murmur uses the speech recognition built into Windows. In Settings → Privacy &amp; security → Speech, turn on Online speech recognition.'}</p>
-      ${next(ready ? 'Continue' : 'Skip for now', ready ? '' : `<button class="btn" id="obSpeech">${mac ? 'Allow' : 'Open Speech Settings'}</button>`)}`;
-    const sb = $('#obSpeech'); if (sb) sb.onclick = requestSpeech;
-  } else if (step === 2) {
-    const opt = (id, extra) => { const p = PROV[id], s = provState(id); return `<div class="ob-opt ${st.settings.provider === id ? 'on' : ''}" data-p="${id}"><div class="logo" style="background:${p.color}">${ICON[p.icon]}</div><div><b>${p.name}</b><span>${extra}</span></div><span class="st ${s === 'ok' && id !== 'off' ? 'ok' : ''}">${id === 'off' ? 'No AI' : s === 'ok' ? 'Connected' : s === 'half' ? 'Sign in' : 'Set up'}</span></div>`; };
+  if (step === 'welcome') {
+    b.innerHTML = `<h1>Meet Murmur</h1><p>Talk in any app. Murmur turns your voice into clean, well-written text in about a second. Setup takes a minute: ${isMac() ? 'three' : 'two'} permissions and your AI account.</p>${next('Get started')}`;
+  } else if (step === 'perms') {
+    const pm = perms || {}, good = v => v === 'granted' || v === 'unknown';
+    const rows = PERM_INFO().map(([k, name, why]) => {
+      const v = pm[k], done = good(v);
+      const label = done ? '' : isMac() && v === 'not_asked' ? 'Allow' : 'Open Settings';
+      return `<li class="${done ? 'done' : ''}"><div class="pt"><b>${name}</b><span>${why}</span></div>${done ? '<span class="st ok">On</span>' : `<button class="btn" data-perm="${k}">${label}</button>`}</li>`;
+    }).join('');
+    const axHelp = isMac() && !good(pm.accessibility) && pm.accessibility_tried
+      ? `<p class="ob-note">Already switched on in System Settings but still not working? That's an old entry from a previous version. <a id="axReset">Reset Murmur's entry</a> and allow it again.</p>` : '';
+    const dmg = pm.not_installed ? `<p class="ob-note warn">Murmur is running from the disk image. Drag it into Applications and open it from there, or macOS won't remember these permissions.</p>` : '';
+    const required = good(pm.mic) && good(pm.speech);
+    b.innerHTML = `<h1>${pm.all_granted ? 'All set' : 'A few permissions'}</h1>
+      <p>Murmur asks for each one only when you click its button, and ${isMac() ? 'macOS remembers your answer' : 'Windows remembers these settings'}.</p>
+      ${dmg}<ul class="ob-perms">${rows}</ul>${axHelp}
+      ${next(required ? 'Continue' : 'Skip for now')}`;
+    $$('[data-perm]', b).forEach(x => x.onclick = async () => {
+      x.disabled = true;
+      if (x.dataset.perm === 'accessibility') perms = { ...perms, accessibility_tried: true };
+      const keep = perms?.accessibility_tried;
+      perms = { ...(await invoke('request_permission', { which: x.dataset.perm })), accessibility_tried: keep };
+      renderOb(); renderSpeech(); renderPerm();
+    });
+    const ar = $('#axReset'); if (ar) ar.onclick = async () => {
+      if (!confirm("Remove Murmur's old Accessibility entry? macOS will then ask you to allow Murmur again.")) return;
+      try { perms = await invoke('reset_accessibility'); toast('Now allow Murmur in the window macOS shows'); } catch (e) { toast(String(e)); }
+      renderOb();
+    };
+  } else if (step === 'ai') {
     const sel = st.settings.provider, s = ps?.[sel];
-    let act = '';
-    if ((sel === 'claude' || sel === 'codex') && s && !s.logged_in) act = s.installed ? `<button class="btn" data-setup="login">Sign in to ${PROV[sel].name}</button>` : `<button class="btn" data-setup="install">Install ${sel === 'claude' ? 'Claude Code' : 'Codex'}</button>`;
-    b.innerHTML = `<h1>Connect your AI</h1><p>Use the plan you already have. Murmur signs in through the official app, so there's nothing new to pay for.</p>
+    const opt = (id, extra) => { const p = PROV[id], st2 = provState(id); return `<div class="ob-opt ${sel === id ? 'on' : ''}" data-p="${id}"><div class="logo" style="background:${p.color}">${ICON[p.icon]}</div><div><b>${p.name}</b><span>${extra}</span></div><span class="st ${st2 === 'ok' && id !== 'off' ? 'ok' : ''}">${id === 'off' ? 'No AI' : st2 === 'ok' ? 'Connected' : verifying[id] ? 'Checking…' : ps?.[id]?.logged_in ? 'Verify' : ps?.[id]?.installed ? 'Sign in' : 'Set up'}</span></div>`; };
+    let steps = '';
+    if ((sel === 'claude' || sel === 'codex') && s) {
+      const tool = sel === 'claude' ? 'Claude Code' : 'Codex', site = sel === 'claude' ? 'claude.ai' : 'chatgpt.com', ver = ps.verified?.[sel];
+      steps = `<ol class="steps ob-steps-list">
+        <li class="${s.installed ? 'done' : ''}">Install ${tool}, the official app Murmur talks through${s.installed ? '' : '<button class="btn" data-setup="install">Install</button>'}</li>
+        <li class="${s.logged_in && !verifyErr[sel] ? 'done' : ''}">Sign in on ${site} with your own account${!s.installed || (s.logged_in && !verifyErr[sel]) ? '' : `<button class="btn" data-setup="login">${s.logged_in ? 'Sign in again' : 'Sign in'}</button>`}</li>
+        <li class="${ver ? 'done' : ''}">${verifying[sel] ? 'Checking the connection…' : verifyErr[sel] ? `Test failed: ${esc(verifyErr[sel])}` : 'Murmur checks the connection with one short test message'}${s.logged_in && !ver && !verifying[sel] ? `<button class="btn" id="obVerify">${verifyErr[sel] ? 'Try again' : 'Verify'}</button>` : ''}</li>
+      </ol>`;
+    }
+    b.innerHTML = `<h1>Connect your AI</h1><p>Use the plan you already have. You sign in through ${sel === 'codex' ? 'Codex' : 'Claude Code'}'s own login in a terminal window; Murmur never sees your password.</p>
       <div class="ob-opts">${opt('claude', 'Claude Pro or Max')}${opt('codex', 'ChatGPT Plus or Pro')}${opt('off', 'Skip, paste raw transcripts')}</div>
-      ${next(provState(sel) === 'ok' ? 'Continue' : 'Skip for now', act)}`;
-    $$('.ob-opt', b).forEach(o => o.onclick = async () => { await save({ provider: o.dataset.p }); renderOb(); renderProviders(); });
+      ${steps}
+      ${next(provState(sel) === 'ok' ? 'Continue' : 'Skip for now')}`;
+    $$('.ob-opt', b).forEach(o => o.onclick = async () => { await save({ provider: o.dataset.p }); renderOb(); renderProviders(); autoVerify(); });
     $$('[data-setup]', b).forEach(x => x.onclick = async () => { try { await invoke('setup_provider', { provider: sel, action: x.dataset.setup }); pollProviders(); toast('Finish in the terminal window, then come back'); } catch (e) { toast(String(e)); } });
-  } else if (step === 3) {
-    const ok = ps?.accessibility;
-    b.innerHTML = `<h1>${ok ? 'Paste access granted' : 'Allow pasting'}</h1>
-      <p>${ok ? 'Murmur can type into any app.' : 'macOS asks you to allow Murmur under Accessibility so it can paste text where your cursor is. The first time you dictate, macOS will also ask for the microphone.'}</p>
-      ${next(ok ? 'Continue' : 'Skip for now', ok ? '' : '<button class="btn" id="obPerm">Open Accessibility Settings</button>')}`;
-    const pb = $('#obPerm'); if (pb) pb.onclick = () => { invoke('open_privacy', { which: 'accessibility' }); pollPerm(); };
+    const vb = $('#obVerify'); if (vb) vb.onclick = () => { delete verifyErr[sel]; verifyProvider(sel); };
   } else {
     b.innerHTML = `<h1>${obDone ? 'Beautiful.' : 'Give it a try'}</h1>
-      <p>${obDone ? `That's it. Murmur lives in your ${pick('menu bar', 'system tray')} and works in every app.` :'Click the box, hold the shortcut, say something, and let go.'}</p>
+      <p>${obDone ? `That's it. Murmur lives in your ${pick('menu bar', 'system tray')} and works in every app.` : 'Click the box, hold the shortcut, say something, and let go.'}</p>
       <div class="keys ob-big-keys">${keysHTML(st.settings.shortcut)}</div>
       <textarea class="ob-try" id="obTry" placeholder="Your words will appear here…"></textarea>
       ${next(obDone ? 'Start using Murmur' : 'Finish')}`;
@@ -418,12 +513,38 @@ function renderOb() {
   }
   const n = $('#obNext');
   if (n) n.onclick = async () => {
-    if (obStep >= OB_STEPS() - 1) { await save({ onboarded: true }); ob.classList.add('hidden'); renderAll(); return; }
+    if (obStep >= obPlan.length - 1) {
+      watchPerms(false);
+      if (obPlan.includes('try') || obNeeded({ welcome: false, tryIt: false }).length === 0) await save({ onboarded: true });
+      ob.classList.add('hidden'); renderAll(); checkInstallers(); return;
+    }
     obStep++; renderOb();
   };
 }
 function pollPerm() {
   let n = 0; const t = setInterval(async () => { await refreshProviders(); if (ps.accessibility || ++n > 60) { clearInterval(t); renderOb(); } }, 2000);
+}
+
+// ───────── installer clean-up (asks; never deletes on its own) ─────────
+async function checkInstallers() {
+  if (perms?.not_installed) return;
+  const files = await invoke('find_installers').catch(() => []);
+  if (!files?.length) return;
+  const list = files.map(f => `<li><b>${esc(f.name)}</b><span>${f.size_mb.toFixed(1)} MB · Downloads</span></li>`).join('');
+  const m = $('#modal');
+  $('#modalBody').innerHTML = `<h3>Delete the installer?</h3>
+    <p>Murmur is installed, so you don't need ${files.length > 1 ? 'these files' : 'this file'} any more. ${isMac() ? 'It goes to the Trash' : 'It goes to the Recycle Bin'}, so you can still get it back.</p>
+    <ul class="files">${list}</ul>
+    <div class="row-btns"><button class="btn ghost" id="instKeep">Keep</button><button class="btn primary" id="instTrash">Move to ${isMac() ? 'Trash' : 'Recycle Bin'}</button></div>`;
+  m.classList.remove('hidden');
+  const names = files.map(f => f.name);
+  const close = () => m.classList.add('hidden');
+  $('#instKeep').onclick = async () => { await invoke('handle_installers', { names, delete: false }).catch(() => {}); close(); };
+  $('#instTrash').onclick = async () => {
+    try { const n = await invoke('handle_installers', { names, delete: true }); toast(`Moved ${n} file${n === 1 ? '' : 's'} to the ${isMac() ? 'Trash' : 'Recycle Bin'}`); }
+    catch (e) { toast(String(e)); }
+    close();
+  };
 }
 
 // ───────── boot ─────────
@@ -447,15 +568,22 @@ function dismissSplash() {
   renderAll();
   dismissSplash();
   waves($('#heroWave'), () => heroEnergy, .27);
-  if (!st.settings.onboarded) { $('#onboard').classList.remove('hidden'); waves($('#obWave'), () => .6); renderOb(); }
-  await refreshProviders(); renderOb();
+  perms = await invoke('permissions').catch(() => null);
+  await refreshProviders();
+  if (!st.settings.onboarded) {
+    const plan = obNeeded();
+    // reinstall with everything still granted and connected: nothing to ask, don't repeat setup
+    if (plan.length === 1 && plan[0] === 'try' && st.history.length) await save({ onboarded: true });
+    else openOnboarding(plan);
+  } else checkInstallers();
   const r = $('.app').getBoundingClientRect();
   invoke('ui_report', { page: 'main', data: {
-    onboardingVisible: !$('#onboard').classList.contains('hidden'), onboardingTitle: $('#obBody h1')?.textContent,
+    onboardingVisible: !$('#onboard').classList.contains('hidden'), onboardingTitle: $('#obBody h1')?.textContent, onboardingPlan: obPlan.join(','), perms, verified: ps?.verified,
     providerCards: $$('#providers .prov').length, speechCard: !!$('#models .speech'), navItems: $$('#nav a').length,
     status: $('#statusText').innerText, layout: [Math.round(r.width), Math.round(r.height)], vibrancy: st.vibrancy,
     dark: matchMedia('(prefers-color-scheme: dark)').matches, claude: ps?.claude?.detail, codex: ps?.codex?.detail, accessibility: ps?.accessibility,
   } }).catch(() => {});
 })();
 window.addEventListener('error', e => invoke('ui_report', { page: 'main', data: { error: String(e.message) } }).catch(() => {}));
+window.addEventListener('unhandledrejection', e => invoke('ui_report', { page: 'main', data: { error: 'async: ' + String(e.reason?.message || e.reason) } }).catch(() => {}));
 if (T) T.event.listen('phase', e => invoke('ui_report', { page: 'main', data: { phaseSeen: e.payload.phase, status: $('#statusText').innerText } }).catch(() => {}));

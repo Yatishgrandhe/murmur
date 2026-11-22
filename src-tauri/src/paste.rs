@@ -122,13 +122,15 @@ pub fn open_privacy_pane(which: &str) {
     }
     #[cfg(windows)]
     {
-        if which == "mic" {
+        let page = match which {
+            "mic" => Some("ms-settings:privacy-microphone"),
+            "speech" => Some("ms-settings:privacy-speech"),
+            _ => None,
+        };
+        if let Some(page) = page {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            let _ = std::process::Command::new("explorer")
-                .arg("ms-settings:privacy-microphone")
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn();
+            let _ = std::process::Command::new("explorer").arg(page).creation_flags(CREATE_NO_WINDOW).spawn();
         }
     }
     let _ = which;

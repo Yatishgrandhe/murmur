@@ -38,6 +38,32 @@ jobs:
           workspaces: src-tauri
           key: vs2022
       - run: npm ci
+      # Developer ID signing + notarization, used only when the repo has these secrets.
+      # Without them the build is ad-hoc signed (macOS then asks for permissions again after updates).
+      - name: macOS signing (optional)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          CERT_PW: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          AID: ${{ secrets.APPLE_ID }}
+          APW: ${{ secrets.APPLE_PASSWORD }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$CERT" ] && [ -n "$IDENTITY" ]; then
+            {
+              echo "APPLE_CERTIFICATE=$CERT"
+              echo "APPLE_CERTIFICATE_PASSWORD=$CERT_PW"
+              echo "APPLE_SIGNING_IDENTITY=$IDENTITY"
+            } >> "$GITHUB_ENV"
+            if [ -n "$AID" ] && [ -n "$APW" ] && [ -n "$TEAM" ]; then
+              { echo "APPLE_ID=$AID"; echo "APPLE_PASSWORD=$APW"; echo "APPLE_TEAM_ID=$TEAM"; } >> "$GITHUB_ENV"
+            fi
+            echo "Signing with Developer ID"
+          else
+            echo "No signing secrets: ad-hoc signed build"
+          fi
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -45,9 +71,9 @@ jobs:
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: Murmur ${{ inputs.tag || github.ref_name }}
           releaseBody: |
-            **macOS:** download the `.dmg`, drag Murmur to Applications. First launch: right-click Murmur → Open (the app is not notarized yet).
-            **Windows:** download the `-setup.exe` and run it. If SmartScreen appears, click More info → Run anyway.
-            Then follow the setup window: download the voice model, connect Claude or ChatGPT, and hold the shortcut to talk.
+            **macOS (Apple Silicon):** download the `.dmg`, drag Murmur into Applications and open it from there. First launch: right-click Murmur → Open.
+            **Windows 10/11:** download the `-setup.exe` and run it (per-user, no admin). If SmartScreen appears, click More info → Run anyway.
+            Then follow the setup window: it asks for each permission only when you click it, connects your own Claude or ChatGPT account, and verifies the connection with one test message. Nothing else is downloaded or installed.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

@@ -27,19 +27,57 @@ what you meant to type, and pastes it into the app you're in: Slack, Gmail, VS C
 
 ## Install
 
-1. Open the [**Releases**](../../releases/latest) page and download the installer:
-   - **macOS (Apple Silicon):** `Murmur_x.y.z_aarch64.dmg`. Open it and drag Murmur to Applications.
-     The first time you open it, **right-click Murmur → Open**, because the app isn't notarized by Apple yet.
-   - **Windows 10/11:** `Murmur_x.y.z_x64-setup.exe`. If SmartScreen warns you, click **More info → Run anyway**.
-2. A setup window walks you through the rest:
-   1. **Turn on speech recognition.** macOS asks once to allow Speech Recognition. On Windows, turn on
-      Settings › Privacy & security › Speech › **Online speech recognition** (Windows dictation uses Microsoft's
-      speech service).
-   2. **Connect your AI.** Pick Claude or ChatGPT and click **Install**, then **Sign in**. Each opens a terminal
-      running the official installer or login, and Murmur notices automatically once you're signed in.
-   3. **macOS only: allow pasting.** Turn Murmur on under System Settings › Privacy & Security › Accessibility.
-      macOS asks for the microphone the first time you dictate.
-   4. **Try it** right in the window.
+1. Open the [**Releases**](../../releases/latest) page and download one file:
+   - **macOS (Apple Silicon):** `Murmur_x.y.z_aarch64.dmg` (about 4 MB). Open it and drag Murmur into
+     **Applications**, then open it from there. Running it straight from the disk image works, but macOS then won't
+     remember its permissions. The first time, **right-click Murmur → Open**: the release isn't notarized by Apple yet.
+   - **Windows 10/11 (x64):** `Murmur_x.y.z_x64-setup.exe` (about 3 MB). It installs for your user only, with no admin
+     prompt. If SmartScreen warns you, click **More info → Run anyway**.
+2. Open Murmur. A setup window lists only the steps you haven't done yet: anything already allowed or connected
+   (after a reinstall or update, say) is skipped.
+3. When setup is done, Murmur offers to move the installer file it finds in your Downloads folder to the Trash
+   (Recycle Bin on Windows). Nothing is removed unless you click **Move to Trash**; **Keep** leaves it alone and Murmur
+   won't ask about that file again.
+
+**Nothing else gets installed.** The installer contains only Murmur. It doesn't download voice models, runtimes or
+helpers, and it adds no background services beyond Murmur itself (and its optional "Open at login" entry). Murmur
+uses the speech recognizer and, on Windows, the WebView2 runtime that already ship with the OS. WebView2 comes with
+Windows 11 and with current Windows 10; on an old Windows 10 without it, install the Evergreen runtime from Microsoft
+first. The only optional download is the Claude Code or Codex app, and only if you click **Install** for it.
+
+### Permissions
+
+Murmur asks for each permission only when you click its button in setup, after saying what it's for. It never pops
+a system prompt on its own, and if a key press finds something missing it opens setup instead.
+
+| Permission | macOS | Windows | Why |
+|---|---|---|---|
+| Microphone | System prompt (once) | Settings › Privacy & security › Microphone › *Let desktop apps access your microphone* | To hear you while you hold the shortcut, or while the wake word is on |
+| Speech recognition | System prompt (once) | Settings › Privacy & security › Speech › **Online speech recognition** | Turns your voice into text with the OS's built-in recognizer. On Windows this sends dictation audio to Microsoft |
+| Accessibility | System Settings › Privacy & Security › Accessibility | not needed | To press ⌘V for you. Optional: without it the text is copied and you paste it yourself |
+
+Murmur never asks for Screen Recording, Full Disk Access, Input Monitoring, contacts or files.
+
+**After an update (macOS):** macOS ties permissions to the app's code signature. Release builds aren't yet signed with
+a Developer ID, so macOS may treat an update as a new app and ask again. If Accessibility shows **on** but pasting
+doesn't work, open setup and click **Reset Murmur's entry**, then allow it again.
+
+### Connecting your AI account
+
+Murmur shows **Connected** only after a real test: it sends one short message ("testing one two three") through your
+account and checks that a rewrite comes back. Until then it says **Signed in, not verified** or **Not connected**.
+
+1. **Install** the official app: Claude Code for a Claude plan, Codex for a ChatGPT plan. Murmur's **Install** button
+   opens a terminal running the vendor's own installer.
+2. **Sign in.** The **Sign in** button opens a terminal running `claude auth login` or `codex login`, which opens
+   claude.ai or chatgpt.com in your browser. You sign in there with your own account; Murmur never sees your password
+   or tokens.
+3. **Verify.** Murmur runs the test message automatically once you're signed in (or click **Verify**). Every successful
+   dictation renews it. If a rewrite fails because you're signed out, Murmur drops back to *not verified* and asks you
+   to sign in again.
+
+Free accounts: Claude Code needs a Claude Pro or Max plan (or an API key); Codex works with ChatGPT plans that include
+it. With no AI connected, Murmur still works and pastes the raw transcript.
 
 ## Using it
 
@@ -130,13 +168,18 @@ ui/            overlay pill (canvas waves) and the settings / onboarding window.
 
 ## Troubleshooting
 
-- **Nothing pastes (macOS):** enable Murmur under Privacy & Security › Accessibility. If you updated the app,
-  remove it with − and add it again. Until then, Murmur copies the rephrased text and the pill says "⌘V to paste".
+- **Nothing pastes (macOS):** enable Murmur under Privacy & Security › Accessibility. If it's already on (common after
+  an update), click **Reset Murmur's entry** in setup and allow it again. Until then, Murmur copies the rephrased text
+  and the pill says "⌘V to paste".
+- **Reinstalling:** your settings, history and connection status live in `~/Library/Application Support/Murmur`
+  (macOS) or `%APPDATA%\Murmur` (Windows), which reinstalling doesn't touch, so setup only shows what's still missing.
+  To start over completely, delete that folder.
 - **Building it yourself on a Mac:** `./scripts/install-mac.sh` builds, signs with your Apple Development certificate
   if you have one (so permissions survive rebuilds), installs to /Applications and starts it.
 - **What happened?** `~/Library/Logs/Murmur/murmur.log` records each dictation step: mic, audio level, transcript and
   result. It holds no audio.
-- **"Not signed in":** open Murmur › AI Rewrite and click **Sign in**, or run `claude auth login` / `codex login`.
+- **"Not connected" / "Signed in, not verified":** open Murmur › AI Rewrite. Click **Sign in** (or run
+  `claude auth login` / `codex login`), then **Verify**. The error from the test message is shown there.
 - **Shortcut does nothing:** another app may own it. Pick a different one under Shortcut.
 - **Intel Macs / Linux:** not in the prebuilt releases yet. Build from source.
 

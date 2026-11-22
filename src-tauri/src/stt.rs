@@ -303,6 +303,11 @@ mod win {
     }
 
     pub fn fresh_status() -> Status {
+        // Settings › Privacy & security › Speech › "Online speech recognition"
+        let accepted = crate::perms::win_reg::read_dword(r"Software\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy", "HasAccepted");
+        if accepted == Some(0) {
+            return Status { engine: "windows", ready: false, can_request: false, on_device: false, detail: format!("{PRIVACY_HINT}.") };
+        }
         init_thread();
         let probe = (|| -> windows::core::Result<SpeechRecognitionResultStatus> {
             let r = recognizer("auto")?;
@@ -320,7 +325,7 @@ mod win {
 
     /// Windows has no permission prompt: open the Speech privacy page instead.
     pub fn request_access() -> bool {
-        let _ = std::process::Command::new("explorer").arg("ms-settings:privacy-speech").spawn();
+        crate::paste::open_privacy_pane("speech");
         false
     }
 

@@ -8,7 +8,9 @@ pub mod audio;
 pub mod cli;
 pub mod llm;
 pub mod paste;
+pub mod perms;
 pub mod settings;
+pub mod setup;
 pub mod stt;
 pub mod wake;
 
@@ -141,15 +143,23 @@ fn on_release(app: &AppHandle) {
 
 fn begin(app: &AppHandle, c: &Arc<Core>, hands_free: bool) {
     let s = c.settings.lock().clone();
-    let speech = stt::status();
-    if !speech.ready && c.test_audio.lock().is_none() {
-        *c.mode.lock() = Mode::Idle;
-        emit_phase(app, "error", None, Some(speech.detail.clone()), false);
-        show_main(app, Some("voice"));
-        if speech.can_request {
-            std::thread::spawn(stt::request_access);
+    if c.test_audio.lock().is_none() {
+        // Permissions are only ever requested from the setup window, after explaining them,
+        // so a key press with something missing opens setup instead of a surprise prompt.
+        let p = perms::check();
+        let missing = if p.mic != "granted" && p.mic != "unknown" {
+            Some("Murmur needs the microphone. Finish setup in the Murmur window.")
+        } else if p.speech != "granted" {
+            Some("Murmur needs speech recognition. Finish setup in the Murmur window.")
+        } else {
+            None
+        };
+        if let Some(msg) = missing {
+            *c.mode.lock() = Mode::Idle;
+            emit_phase(app, "error", None, Some(msg.into()), false);
+            show_main(app, Some("setup"));
+            return;
         }
-        return;
     }
     report("press", serde_json::json!({"provider": s.provider, "model": s.model, "accessibility": paste::accessibility_ok()}));
     position_overlay(app);
@@ -312,7 +322,13 @@ fn deliver(app: &AppHandle, c: &Arc<Core>, s: &Settings, raw: String, pending: R
             }
             None => {
                 emit_phase(app, "rewriting", Some(raw.clone()), Some(if s.style == "prompt" { format!("prompt:{}", llm::provider_label(&s.provider)) } else { llm::provider_label(&s.provider).into() }), false);
-                p.finish(&raw).map(|t| llm::scrub(&t, &raw)).unwrap_or_else(|e| {
+                p.finish(&raw).map(|t| llm::scrub(&t, &raw)).inspect(|_| {
+                    let prov = s.provider.clone();
+                    std::thread::spawn(move || setup::mark_verified(&prov, account_for(&prov)));
+                }).unwrap_or_else(|e| {
+                    if setup::is_auth_error(&e) {
+                        setup::clear_verified(&s.provider);
+                    }
                     warning = Some(e);
                     used = "off".into();
                     raw.clone()
@@ -377,7 +393,7 @@ fn wake_loop(app: AppHandle, c: Arc<Core>) {
     let mut announced = false;
     loop {
         let s = c.settings.lock().clone();
-        if !s.wake_word || !stt::status().ready {
+        if !s.wake_word || !stt::status().ready || !matches!(perms::check().mic, "granted" | "unknown") {
             announced = false;
             std::thread::sleep(Duration::from_millis(700));
             continue;
@@ -783,11 +799,19 @@ async fn provider_status() -> serde_json::Value {
             let b = s.spawn(|| cli::status("codex"));
             (a.join().unwrap_or_default(), b.join().unwrap_or_default())
         });
+        let anthropic_key = settings::get_secret("anthropic_key").is_some();
+        let openai_key = settings::get_secret("openai_key").is_some();
         serde_json::json!({
+            "verified": {
+                "claude": claude.logged_in && setup::is_verified("claude", claude.account.as_deref()),
+                "codex": codex.logged_in && setup::is_verified("codex", None),
+                "anthropic": anthropic_key && setup::is_verified("anthropic", None),
+                "openai": openai_key && setup::is_verified("openai", None),
+            },
             "claude": claude,
             "codex": codex,
-            "anthropicKey": settings::get_secret("anthropic_key").is_some(),
-            "openaiKey": settings::get_secret("openai_key").is_some(),
+            "anthropicKey": anthropic_key,
+            "openaiKey": openai_key,
             "accessibility": paste::accessibility_ok(),
         })
     })
@@ -807,7 +831,82 @@ fn set_api_key(name: String, value: String) -> Result<(), String> {
     if name != "anthropic_key" && name != "openai_key" {
         return Err("unknown key".into());
     }
+    // a new key hasn't been proven to work yet
+    setup::clear_verified(name.trim_end_matches("_key"));
     settings::set_secret(&name, value.trim())
+}
+
+/// The signed-in account a provider reports (only Claude Code reports one).
+fn account_for(provider: &str) -> Option<String> {
+    (provider == "claude").then(|| cli::status("claude").account).flatten()
+}
+
+#[derive(Serialize)]
+struct Verification {
+    ok: bool,
+    ms: u64,
+    error: Option<String>,
+}
+
+/// Proves a connection with one tiny real rewrite through the user's own account. Murmur shows
+/// "Connected" only after this (or a real dictation) succeeds.
+#[tauri::command]
+async fn verify_provider(c: CoreRef<'_>, provider: String) -> Result<Verification, String> {
+    if !matches!(provider.as_str(), "claude" | "codex" | "anthropic" | "openai") {
+        return Err("unknown provider".into());
+    }
+    let mut s = c.settings.lock().clone();
+    s.provider = provider.clone();
+    s.style = "clean".into();
+    tauri::async_runtime::spawn_blocking(move || {
+        let t = Instant::now();
+        let res = llm::Pending::start(&s).and_then(|p| p.finish("um testing testing one two three"));
+        let ms = t.elapsed().as_millis() as u64;
+        report("verify", serde_json::json!({"provider": provider, "ok": res.as_ref().map(|t| !t.trim().is_empty()).unwrap_or(false), "ms": ms}));
+        match res {
+            Ok(t) if !t.trim().is_empty() => {
+                setup::mark_verified(&provider, account_for(&provider));
+                Verification { ok: true, ms, error: None }
+            }
+            Ok(_) => {
+                setup::clear_verified(&provider);
+                Verification { ok: false, ms, error: Some("The AI sent back an empty reply.".into()) }
+            }
+            Err(e) => {
+                setup::clear_verified(&provider);
+                Verification { ok: false, ms, error: Some(e) }
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn permissions() -> perms::Perms {
+    tauri::async_runtime::spawn_blocking(perms::check).await.unwrap_or_else(|_| perms::check())
+}
+
+/// Asks for one permission ("mic" | "speech" | "accessibility"); called only from a button in setup.
+#[tauri::command]
+async fn request_permission(which: String) -> perms::Perms {
+    tauri::async_runtime::spawn_blocking(move || perms::request(&which)).await.unwrap_or_else(|_| perms::check())
+}
+
+#[tauri::command]
+async fn reset_accessibility() -> Result<perms::Perms, String> {
+    tauri::async_runtime::spawn_blocking(|| perms::reset_accessibility().map(|_| perms::check())).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn find_installers() -> Vec<setup::InstallerFile> {
+    setup::find_installers()
+}
+
+/// The user's answer to "move the installer to the Trash?". Nothing is removed unless `delete`.
+#[tauri::command]
+fn handle_installers(names: Vec<String>, delete: bool) -> Result<usize, String> {
+    setup::handle_installers(names, delete)
 }
 
 /// Asks for speech-recognition access (macOS prompt; on Windows opens the Speech settings page).
@@ -941,6 +1040,12 @@ pub fn run() {
             set_api_key,
             request_speech,
             speech_status,
+            verify_provider,
+            permissions,
+            request_permission,
+            reset_accessibility,
+            find_installers,
+            handle_installers,
             test_rewrite,
             clear_history,
             delete_history_item,
@@ -1076,14 +1181,10 @@ pub fn run() {
             if first_run || !background {
                 show_main(&handle, None);
             }
-            // macOS asks once for Speech Recognition; do it now rather than on the first dictation
+            // record what's already granted (never prompts; setup asks, after explaining why)
             std::thread::spawn(|| {
-                let st = stt::status();
-                report("speech", serde_json::json!({"engine": st.engine, "ready": st.ready, "on_device": st.on_device}));
-                if st.can_request {
-                    let ok = stt::request_access();
-                    report("speech", serde_json::json!({"granted": ok}));
-                }
+                let p = perms::check();
+                report("perms", serde_json::json!({"mic": p.mic, "speech": p.speech, "accessibility": p.accessibility, "not_installed": p.not_installed}));
             });
             Ok(())
         })
