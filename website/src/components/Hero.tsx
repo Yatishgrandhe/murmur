@@ -84,7 +84,7 @@ export function Hero({ os, ready }: { os: OS; ready: boolean }) {
             Hold <Keys keys={SHORTCUT[os]} />, ramble, let go. Murmur cleans it up and pastes it where your cursor is.
           </motion.p>
           <motion.div {...enter(0.16)}><DownloadButtons os={os} /></motion.div>
-          <motion.p className="hero-fine" {...enter(0.22)}>Free · Open source · About 10 MB · Uses the Claude or ChatGPT plan you already have</motion.p>
+          <motion.p className="hero-fine" {...enter(0.22)}>Free · Open source · Under 10 MB · Uses the Claude or ChatGPT plan you already have</motion.p>
         </div>
 
         <motion.div className="hero-stage" {...enter(0.12)}>

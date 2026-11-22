@@ -17,8 +17,8 @@ export function Nav({ os, onOs }: { os: OS; onOs: (o: OS) => void }) {
           <a href="#how">Shortcut</a>
           <a href="#ai">AI</a>
           <a href="#privacy">Privacy</a>
+          <a href="#connect">Connect</a>
           <a href="#install">Install</a>
-          <a href="#windows">Windows</a>
         </nav>
         <div className="nav-end">
           <Segmented label="Show keys and steps for" tone="dark" size="sm" kind="radio" value={os} onChange={onOs} options={[{ id: 'mac', label: 'Mac' }, { id: 'windows', label: 'Windows' }]} />

@@ -328,10 +328,6 @@ h3 { font-weight: 600; }
 .privacy-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(16px, 3vw, 48px); font-size: clamp(16px, min(1.35vw, 2.4vh), 19px); color: var(--n3); }
 
 /* ================= 9. Install ================= */
-.install-inner { display: flex; flex-direction: column; justify-content: center; height: 100%; gap: 24px; }
-.install-head .body { margin-top: 12px; }
-.install-main { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
-.install-main > div:last-child { width: 100%; max-width: 1080px; }
 .term { width: 100%; border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-window); background: var(--n1); color: var(--n5); border: var(--line-dark); }
 .term-bar { position: relative; height: 40px; display: flex; align-items: center; padding: 0 16px; background: rgba(58, 58, 60, 0.9); border-bottom: var(--line-dark); }
 .term-title { position: absolute; left: 0; right: 0; text-align: center; font-size: 13px; color: var(--n3); pointer-events: none; }
@@ -374,28 +370,56 @@ h3 { font-weight: 600; }
 .footer { flex: none; width: var(--wrap); margin: 0 auto; display: flex; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; padding-top: 16px; border-top: var(--line-dark); font-size: 13px; color: var(--n3); }
 .finale { padding-bottom: 16px; }
 
-/* ================= Windows setup ================= */
-.winsetup-inner { display: flex; flex-direction: column; justify-content: center; height: 100%; gap: clamp(24px, 5vh, 56px); }
-.eyebrow { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; color: var(--n2); margin-bottom: 12px; }
-.winsetup-head .body { margin-top: 16px; max-width: 40em; }
-.winsetup-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; counter-reset: s; }
-.winsetup-steps li { display: flex; flex-direction: column; gap: 16px; padding: clamp(20px, 3vh, 28px); border-radius: var(--r-lg); background: var(--n6); box-shadow: var(--shadow-card); }
-.winsetup-steps h3 { font-size: clamp(19px, min(1.5vw, 2.6vh), 24px); letter-spacing: -0.015em; margin-bottom: 8px; }
-.winsetup-steps p { font-size: clamp(15px, min(1.15vw, 2.1vh), 17px); line-height: 1.45; color: var(--n2); }
-.winsetup-steps p b { color: var(--n1); }
-.winsetup-steps .link { color: var(--blue); }
+/* ================= Step cards (Connect, Install) ================= */
+.steps-inner { display: flex; flex-direction: column; justify-content: center; height: 100%; gap: clamp(24px, 4vh, 48px); }
+.steps-head { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.steps-head .body { max-width: 40em; }
+.steps { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 16px; }
+.steps li { display: flex; flex-direction: column; gap: 16px; padding: clamp(20px, 3vh, 28px); border-radius: var(--r-lg); background: var(--n5); }
+.sec--light .steps li { background: var(--n6); box-shadow: var(--shadow-card); }
+.steps h3 { font-size: clamp(19px, min(1.5vw, 2.6vh), 24px); letter-spacing: -0.015em; margin-bottom: 8px; }
+.steps p { font-size: clamp(15px, min(1.15vw, 2.1vh), 17px); line-height: 1.45; color: var(--n2); }
+.steps p b { color: var(--n1); }
+.steps code { font: 0.92em var(--mono); color: var(--n1); background: rgba(0, 0, 0, 0.05); padding: 1px 6px; border-radius: var(--r-xs); white-space: nowrap; }
+.steps .link, .install-facts .link { color: var(--blue); }
 .step-n { width: 32px; height: 32px; border-radius: var(--r-pill); display: grid; place-items: center; font-size: 15px; font-weight: 600; background: var(--n1); color: var(--n6); }
 .step-aside { margin-top: auto; padding-top: 8px; display: flex; }
-.win-btns { display: flex; gap: 8px; font-size: 13px; }
-.win-btns span { padding: 6px 14px; border-radius: 4px; border: var(--line-light); background: var(--n5); }
-.win-btns .is-pri { background: var(--blue); color: var(--n6); border-color: transparent; }
-.win-toggle { width: 40px; height: 20px; border-radius: var(--r-pill); background: var(--blue); position: relative; }
-.win-toggle i { position: absolute; top: 4px; right: 4px; width: 12px; height: 12px; border-radius: var(--r-pill); background: var(--n6); }
+
+/* small UI bits inside step cards */
+.mini-row { display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 500; color: var(--n2); }
+.mini-btn { display: inline-flex; align-items: center; height: 28px; padding: 0 14px; border-radius: var(--r-pill); font-size: 13px; font-weight: 500; background: var(--n6); border: var(--line-light); color: var(--n1); white-space: nowrap; }
+.mini-btn.is-pri { background: var(--blue); color: var(--n6); border-color: transparent; }
+.mini-folder { padding: 4px 10px; border-radius: var(--r-xs); background: var(--n6); border: var(--line-light); color: var(--n1); }
+.mini-term { display: inline-flex; gap: 8px; padding: 8px 14px; border-radius: var(--r-sm); background: var(--n1); color: var(--n5); font: 14px/1.3 var(--mono); }
+.mini-term span { color: var(--n3); }
+.mini-term--win { background: var(--os-ps); }
+.states { display: grid; gap: 8px; font-size: 13px; color: var(--n1); }
+.state { display: flex; align-items: center; gap: 8px; }
+.dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex: none; }
+.dot--off { background: var(--n4); }
+.dot--warn { background: var(--os-yellow); }
+.dot--ok { background: var(--os-green); }
 .win-tray { display: inline-flex; align-items: center; gap: 12px; padding: 6px 12px; border-radius: 4px; background: var(--n1); color: var(--n6); font-size: 13px; }
+
+/* ================= Permissions ================= */
+.perms .wrap.perms-inner { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: clamp(32px, 6vw, 112px); align-items: center; }
+.perms-copy .body { margin-top: 16px; max-width: 26em; }
+.perms-never { margin-top: 24px; font-size: var(--body); font-weight: 600; color: var(--n1); }
+.perms-list { display: grid; gap: 12px; }
+.perms-list li { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: clamp(16px, 2.6vh, 24px) 24px; border-radius: var(--r-lg); background: var(--n6); box-shadow: var(--shadow-card); }
+.perms-list h3 { display: flex; align-items: center; gap: 8px; font-size: clamp(17px, min(1.35vw, 2.4vh), 21px); }
+.perms-list p { margin-top: 4px; font-size: clamp(15px, min(1.15vw, 2.1vh), 17px); color: var(--n2); }
+.tag { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: var(--r-xs); background: rgba(0, 0, 0, 0.05); color: var(--n2); }
+
+/* install extras */
+.anchor { position: absolute; top: 0; }
+.build { margin-top: 24px; }
+.build summary { cursor: pointer; font-size: 15px; font-weight: 500; color: var(--blue); width: fit-content; }
+.build[open] summary { margin-bottom: 16px; }
 
 /* ================= Small screens ================= */
 @media (max-width: 1100px) { .nav-links { display: none; } }
-@media (max-width: 1100px) and (min-width: 901px) { .winsetup-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1100px) and (min-width: 901px) { .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) {
   .sec { height: auto; min-height: 0; padding: calc(var(--nav-h) + 48px) 0 48px; }
   .hero { min-height: 100svh; }
@@ -407,7 +431,8 @@ h3 { font-weight: 600; }
   .mess-arrow { transform: rotate(90deg); justify-self: start; }
   .shortcut-stage { padding: 32px 0; }
   .key { --ku: clamp(64px, 16vw, 112px); border-radius: var(--r-md); }
-  .shortcut-lines, .privacy-facts, .install-facts, .winsetup-steps { grid-template-columns: 1fr; }
+  .shortcut-lines, .privacy-facts, .install-facts, .steps { grid-template-columns: 1fr; }
+  .perms .wrap.perms-inner { grid-template-columns: 1fr; }
   .shortcut-lines li { flex-direction: row; align-items: baseline; }
   .shortcut-lines .kbds { flex: none; min-width: 6.5em; }
   .everywhere-inner { grid-template-columns: 1fr; }

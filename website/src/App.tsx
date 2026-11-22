@@ -3,7 +3,8 @@ import { Hero } from './components/Hero';
 import { Loader } from './components/Loader';
 import { Nav } from './components/Nav';
 import { Everywhere, Mess, Shortcut, Wake } from './components/SectionsA';
-import { Finale, Install, Memory, Privacy, WindowsSetup, YourAi } from './components/SectionsB';
+import { Finale, Memory, Privacy, YourAi } from './components/SectionsB';
+import { Connect, Install, Permissions } from './components/SectionsC';
 import { detectOS } from './site';
 
 export default function App() {
@@ -11,6 +12,14 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showLoader, setShowLoader] = useState(true);
   const done = useCallback(() => setLoading(false), []);
+
+  // Old links to #windows land on the install steps with Windows selected.
+  useEffect(() => {
+    const sync = () => location.hash === '#windows' && setOs('windows');
+    sync();
+    addEventListener('hashchange', sync);
+    return () => removeEventListener('hashchange', sync);
+  }, []);
 
   // CSS fade + timer unmount: works even when rAF is paused in a background tab.
   useEffect(() => {
@@ -30,10 +39,11 @@ export default function App() {
         <Wake os={os} />
         <Everywhere />
         <YourAi />
+        <Connect os={os} />
         <Memory />
         <Privacy os={os} />
+        <Permissions os={os} />
         <Install os={os} onOs={setOs} />
-        <WindowsSetup />
         <Finale os={os} />
       </main>
     </>

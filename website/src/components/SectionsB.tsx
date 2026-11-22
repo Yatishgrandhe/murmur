@@ -1,11 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useId, useState } from 'react';
-import { PASTE, REPO, SHORTCUT, type OS } from '../site';
+import { PASTE, REPO, type OS } from '../site';
 import { DownloadButtons } from './Hero';
-import { AppleGlyph, IconCheck, IconChevron, IconCopy, IconMic, WindowsGlyph } from './Icons';
+import { AppleGlyph, IconChevron, IconMic, WindowsGlyph } from './Icons';
 import { Keys, MurmurApp, Pill } from './Mock';
 import { MurmurIcon } from './MurmurIcon';
-import { useInstaller } from '../useInstaller';
 import { Segmented } from './SectionsA';
 
 /* ---------- 6. Your AI (black) ---------- */
@@ -42,7 +41,7 @@ export function YourAi() {
             <p>From letting go of the key to text in the box. Measured on an M4 MacBook with Claude Haiku.</p>
           </div>
         </div>
-        <p className="ai-quiet">No API key or extra subscription needed: sign in to Claude Code or Codex once and Murmur uses that. Speech-to-text is built into macOS and Windows, so the whole app is about 10 MB with nothing else to download. If the AI is down or you hit a limit, you get the plain transcript instead of nothing.</p>
+        <p className="ai-quiet">No API key or extra subscription needed: connect Claude Code or Codex once and Murmur uses that. Speech-to-text is built into macOS and Windows, so the app is under 10 MB with nothing else to download. If the AI is down or you hit a limit, you get the plain transcript instead of nothing.</p>
       </div>
     </section>
   );
@@ -148,129 +147,11 @@ export function Privacy({ os }: { os: OS }) {
   );
 }
 
-/* ---------- 9. Install (white) ---------- */
-function useCopy() {
-  const [copied, setCopied] = useState<string | null>(null);
-  const copy = async (key: string, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(key);
-      setTimeout(() => setCopied(null), 1500);
-    } catch {
-      /* clipboard blocked; the command is selectable */
-    }
-  };
-  return { copied, copy };
-}
-
-const CMDS: Record<OS, string[]> = {
-  mac: ['git clone https://github.com/Yatishgrandhe/murmur.git', 'cd murmur', './scripts/install-mac.sh'],
-  windows: ['git clone https://github.com/Yatishgrandhe/murmur.git', 'cd murmur', 'powershell -ExecutionPolicy Bypass -File scripts\\install-windows.ps1'],
-};
-
-export function Install({ os, onOs: setOs }: { os: OS; onOs: (o: OS) => void }) {
-  const { copied, copy } = useCopy();
-  const mac = os === 'mac';
-  const exe = useInstaller();
-  return (
-    <section className="sec sec--white install" id="install">
-      <div className="wrap install-inner">
-        <div className="install-head">
-          <h2>Install it</h2>
-          <p className="body">{mac ? (exe.dmg ? 'Download the app for Apple Silicon Macs, or build it yourself with three commands.' : 'There’s no Mac download yet, so you build it. Three commands, a few minutes.') : 'Run the installer, or build it yourself with three commands. Setup steps for Windows are just below.'}</p>
-        </div>
-        <div className="install-main">
-          <Segmented label="Operating system" value={os} onChange={setOs} options={[{ id: 'mac', label: 'macOS' }, { id: 'windows', label: 'Windows' }]} />
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div key={os} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
-              <div className={`term term--${os}`}>
-                <div className="term-bar">
-                  {mac ? <span className="lights" aria-hidden><i /><i /><i /></span> : <span className="ps-icon" aria-hidden>&gt;_</span>}
-                  <span className="term-title">{mac ? 'murmur — zsh' : 'Windows PowerShell'}</span>
-                  <button type="button" className="copy-all" onClick={() => copy('all', CMDS[os].join(mac ? ' && ' : '; '))}>
-                    {copied === 'all' ? 'Copied' : 'Copy all'}
-                  </button>
-                </div>
-                <div className="term-body">
-                  {CMDS[os].map((c, i) => (
-                    <div key={c} className="term-line">
-                      <span className="term-prompt" aria-hidden>{mac ? '%' : 'PS>'}</span>
-                      <code>{c}</code>
-                      <button type="button" className="copy-one" onClick={() => copy(`c${i}`, c)} aria-label={copied === `c${i}` ? 'Copied' : `Copy: ${c}`}>
-                        {copied === `c${i}` ? <><IconCheck size={14} /> Copied</> : <IconCopy size={15} />}
-                      </button>
-                    </div>
-                  ))}
-                  <p className="term-out">{mac ? 'Murmur installed and running. Tap ⌥ Space, speak, and pause.' : 'Builds the installer, installs it for your user, and opens Murmur.'}</p>
-                </div>
-              </div>
-              <dl className="install-facts">
-                <div><dt>You need</dt><dd>{mac ? 'Rust, Node.js and the Xcode command-line tools' : 'Rust, Node.js, the Visual Studio C++ build tools and WebView2'}</dd></div>
-                <div><dt>Allow</dt><dd>{mac ? 'Microphone, Speech Recognition, and Accessibility so it can paste' : 'Microphone and Online speech recognition, under Settings › Privacy & security'}</dd></div>
-                <div><dt>Then</dt><dd>{mac ? <>Hold <Keys keys={SHORTCUT.mac} /> and talk.{exe.dmg && <> Or skip building: <a className="link" href={exe.dmg.url}>get the {exe.tag} .dmg, {exe.dmg.size} ›</a> (first launch: right-click › Open)</>}</> : <>Hold <Keys keys={SHORTCUT.windows} /> and talk. Or skip building: <a className="link" href={exe.url}>get the {exe.tag} installer, {exe.size} ›</a></>}</dd></div>
-              </dl>
-            </motion.div>
-          </AnimatePresence>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ---------- 9b. Windows setup (light) ---------- */
-export function WindowsSetup() {
-  const exe = useInstaller();
-  const steps: { h: string; body: React.ReactNode; aside?: React.ReactNode }[] = [
-    {
-      h: 'Install',
-      body: <>Download <a className="link" href={exe.url}>{exe.url.split('/').pop()!.split('_').map((part, i) => <span key={i}>{i > 0 && <>_<wbr /></>}{part}</span>)}</a> from the latest release and run it. If SmartScreen appears, click <b>More info</b>, then <b>Run anyway</b>.</>,
-      aside: <span className="win-btns" aria-hidden><span>More info</span><span className="is-pri">Run anyway</span></span>,
-    },
-    {
-      h: 'Turn on speech',
-      body: <>Settings › Privacy &amp; security › Speech › turn on <b>Online speech recognition</b>. Windows dictation uses Microsoft’s speech service, so the audio you dictate goes to Microsoft.</>,
-      aside: <span className="win-toggle" aria-hidden><i /></span>,
-    },
-    {
-      h: 'Allow the mic',
-      body: <>Settings › Privacy &amp; security › Microphone › turn on <b>Let desktop apps access your microphone</b>.</>,
-      aside: <span className="win-toggle" aria-hidden><i /></span>,
-    },
-    {
-      h: 'Find it in the tray',
-      body: <>Murmur lives in the system tray, by the clock. Left-click its icon to open settings. Then hold <Keys keys={SHORTCUT.windows} /> and talk.</>,
-      aside: <span className="win-tray" aria-hidden><MurmurIcon size={18} /><span>9:41 AM</span></span>,
-    },
-  ];
-  return (
-    <section className="sec sec--light winsetup" id="windows">
-      <div className="wrap winsetup-inner">
-        <div className="winsetup-head">
-          <p className="eyebrow"><WindowsGlyph size={16} /> On Windows</p>
-          <h2>Four steps, about two minutes</h2>
-          <p className="body">The wake word needs nothing extra. Windows’ offline phrase recognizer listens for “Hey Murmur”, so background audio isn’t uploaded.</p>
-        </div>
-        <ol className="winsetup-steps">
-          {steps.map((st, i) => (
-            <li key={st.h}>
-              <span className="step-n" aria-hidden>{i + 1}</span>
-              <div>
-                <h3>{st.h}</h3>
-                <p>{st.body}</p>
-              </div>
-              {st.aside && <div className="step-aside">{st.aside}</div>}
-            </li>
-          ))}
-        </ol>
-      </div>
-    </section>
-  );
-}
-
 /* ---------- 10. FAQ + final CTA (black) ---------- */
 const faq = (os: OS): [string, React.ReactNode][] => [
   ['Is it actually free?', 'Yes, it’s open source under Apache-2.0. With Claude or ChatGPT it rides on the plan you already pay for, with no API key. Turn rewriting off and it costs nothing at all.'],
-  ['Is there a voice model to download?', `No. Murmur uses the speech recognition built into ${os === 'mac' ? 'macOS' : 'Windows'}. The installer is about 10 MB and that’s everything.`],
+  ['Is there a voice model to download?', `No. Murmur uses the speech recognition built into ${os === 'mac' ? 'macOS' : 'Windows'}. The app is under 10 MB and nothing else gets installed.`],
+  ['Does Murmur see my Claude or ChatGPT password?', 'No. You sign in on claude.ai or chatgpt.com in your own browser, through Claude Code or Codex. Murmur never sees your password or tokens.'],
   ['Does my audio go anywhere?', os === 'mac'
     ? 'On a Mac, speech becomes text on the Mac itself when on-device recognition is available. Claude or ChatGPT only ever get the transcript.'
     : 'Yes, to Microsoft: Windows dictation uses its online speech recognition. Claude or ChatGPT only ever get the transcript. The wake word is checked offline.'],
@@ -309,7 +190,7 @@ export function Finale({ os }: { os: OS }) {
         <div className="final">
           <img src="./murmur-logo.png" width={64} height={64} alt="" />
           <h2>Download Murmur</h2>
-          <p className="body">Free for macOS and Windows. About 10 MB.</p>
+          <p className="body">Free for macOS and Windows. Under 10 MB.</p>
           <DownloadButtons os={os} />
           <a className="link" href={REPO} target="_blank" rel="noreferrer">Source on GitHub ›</a>
         </div>
