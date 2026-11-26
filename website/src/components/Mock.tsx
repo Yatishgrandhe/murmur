@@ -155,7 +155,7 @@ export function MurmurApp({ page, children, dark = false, className = '', compac
       )}
       <aside className="mapp-side">
         {chrome === 'mac' && <WindowControls os="mac" />}
-        <div className="mapp-brand"><MurmurIcon size={22} /><b>Murmur</b><span>v0.4</span></div>
+        {chrome === 'mac' && <div className="mapp-brand"><MurmurIcon size={22} /><b>Murmur</b><span>v0.4</span></div>}
         <nav aria-label="Murmur settings, example">
           {NAV.map((n) => (
             <button key={n.id} type="button" className={n.id === cur ? 'on' : ''} aria-current={n.id === cur ? 'page' : undefined} onClick={() => { setCur(n.id); setMoved(true); }}>
