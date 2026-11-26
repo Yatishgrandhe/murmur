@@ -17,7 +17,7 @@ const PROVIDERS = {
 } as const;
 type Provider = keyof typeof PROVIDERS;
 
-export function YourAi() {
+export function YourAi({ os }: { os: OS }) {
   const [p, setP] = useState<Provider>('claude');
   const info = PROVIDERS[p];
   return (
@@ -25,7 +25,7 @@ export function YourAi() {
       <div className="wrap ai-inner">
         <h2>Runs on the AI you already pay for</h2>
         <div className="ai-split">
-          <MurmurApp page="ai" dark className="ai-app">
+          <MurmurApp page="ai" dark className="ai-app" os={os}>
             <header className="mapp-head"><h3>AI Rewrite</h3><p>Who cleans up what you said.</p></header>
             <Segmented label="AI provider" tone="dark" value={p} onChange={setP} options={(Object.keys(PROVIDERS) as Provider[]).map((k) => ({ id: k, label: PROVIDERS[k].name }))} />
             <AnimatePresence mode="wait" initial={false}>
@@ -48,15 +48,7 @@ export function YourAi() {
 }
 
 /* ---------- 7. Dictionary + History (light) ---------- */
-const WORDS = ['Priya', 'Kubernetes', 'Anaïs', 'PostgreSQL', 'Tauri', 'GPT-5', 'Okonkwo', 'Figma', 'Wednesday standup'];
-const HISTORY = [
-  { t: '9:41 AM', said: 'um so tell john I’m like running ten min late', wrote: 'Running about 10 minutes late!', ms: '0.8 s' },
-  { t: '9:12 AM', said: 'can you ask priya if the kubernetes thing is uh fixed', wrote: 'Can you ask Priya if the Kubernetes issue is fixed?', ms: '0.9 s' },
-  { t: 'Yesterday', said: 'note to self buy oat milk eggs and the good coffee', wrote: 'Buy oat milk, eggs, and the good coffee.', ms: '0.7 s' },
-  { t: 'Yesterday', said: 'tuesday no wait wednesday at three', wrote: 'Wednesday at 3.', ms: '0.6 s' },
-];
-
-export function Memory() {
+export function Memory({ os }: { os: OS }) {
   return (
     <section className="sec sec--light memory">
       <div className="wrap memory-inner">
@@ -65,25 +57,8 @@ export function Memory() {
           <p className="body">Add names and jargon once. Every dictation is saved on this computer, with what you said next to what got typed.</p>
         </div>
         <div className="memory-wins">
-          <MurmurApp page="dictionary" className="mem-app" compact>
-            <header className="mapp-head"><h3>Dictionary</h3><p>Names, brands and jargon Murmur should always get right.</p></header>
-            <div className="mapp-card">
-              <div className="chips">{WORDS.map((w) => <span key={w} className="chip">{w}<i aria-hidden>×</i></span>)}</div>
-              <div className="field">Add a word and press Return</div>
-            </div>
-          </MurmurApp>
-          <MurmurApp page="history" className="mem-app mem-app--history" compact>
-            <header className="mapp-head mapp-head--split"><div><h3>History</h3><p>Stored only on this computer.</p></div><span className="ghost-btn">Clear all</span></header>
-            <ul className="hist">
-              {HISTORY.map((h, i) => (
-                <li key={i}>
-                  <div className="hist-meta"><span>{h.t}</span><span>{h.ms}</span></div>
-                  <p className="hist-wrote">{h.wrote}</p>
-                  <p className="hist-said">You said: {h.said}</p>
-                </li>
-              ))}
-            </ul>
-          </MurmurApp>
+          <MurmurApp page="dictionary" className="mem-app" compact os={os} />
+          <MurmurApp page="history" className="mem-app mem-app--history" compact os={os} />
         </div>
       </div>
     </section>

@@ -1,5 +1,5 @@
-import { KEY_NAME } from '../site';
-import type { CSSProperties, ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
+import { KEY_NAME, SHORTCUT, type OS } from '../site';
 import { IconBook, IconClock, IconKey, IconSparkle, IconWave } from './Icons';
 import { MurmurIcon } from './MurmurIcon';
 import { Waveform } from './Waveform';
@@ -48,28 +48,105 @@ export function Pill({ state, text, level = 0.9, who = 'Claude' }: { state: Pill
   );
 }
 
-/* ---------- Murmur's own settings window ---------- */
+/* ---------- Murmur's own settings window: a small working copy of the app ---------- */
 const NAV = [
   { id: 'ai', label: 'AI Rewrite', icon: <IconSparkle size={15} /> },
   { id: 'shortcut', label: 'Shortcut', icon: <IconKey size={15} /> },
   { id: 'voice', label: 'Voice', icon: <IconWave size={15} /> },
   { id: 'dictionary', label: 'Dictionary', icon: <IconBook size={15} /> },
   { id: 'history', label: 'History', icon: <IconClock size={15} /> },
+] as const;
+export type AppPage = (typeof NAV)[number]['id'];
+
+export const WORDS = ['Priya', 'Kubernetes', 'Anaïs', 'PostgreSQL', 'Tauri', 'GPT-5', 'Okonkwo', 'Figma', 'Wednesday standup'];
+export const HISTORY = [
+  { t: '9:41 AM', said: 'um so tell john I’m like running ten min late', wrote: 'Running about 10 minutes late!', ms: '0.8 s' },
+  { t: '9:12 AM', said: 'can you ask priya if the kubernetes thing is uh fixed', wrote: 'Can you ask Priya if the Kubernetes issue is fixed?', ms: '0.9 s' },
+  { t: 'Yesterday', said: 'note to self buy oat milk eggs and the good coffee', wrote: 'Buy oat milk, eggs, and the good coffee.', ms: '0.7 s' },
+  { t: 'Yesterday', said: 'tuesday no wait wednesday at three', wrote: 'Wednesday at 3.', ms: '0.6 s' },
 ];
-export function MurmurApp({ page, children, dark = false, className = '', compact = false }: { page: string; children: ReactNode; dark?: boolean; className?: string; compact?: boolean }) {
+
+function DefaultPage({ id, os }: { id: AppPage; os: OS }) {
+  switch (id) {
+    case 'ai':
+      return (
+        <>
+          <header className="mapp-head"><h3>AI Rewrite</h3><p>Who cleans up what you said.</p></header>
+          <dl className="mapp-card mapp-rows">
+            <div><dt>Provider</dt><dd>Claude, through Claude Code</dd></div>
+            <div><dt>Style</dt><dd>Clean</dd></div>
+          </dl>
+        </>
+      );
+    case 'shortcut':
+      return (
+        <>
+          <header className="mapp-head"><h3>Shortcut</h3><p>Hold to talk. Tap once for hands-free.</p></header>
+          <div className="mapp-card mapp-rows">
+            <div><dt>Talk</dt><dd><Keys keys={SHORTCUT[os]} /></dd></div>
+            <div><dt>Cancel</dt><dd><Keys keys={['Esc']} /></dd></div>
+          </div>
+        </>
+      );
+    case 'voice':
+      return (
+        <>
+          <header className="mapp-head"><h3>Voice</h3><p>Murmur uses the speech recognition built into your computer. Nothing to download.</p></header>
+          <div className="mapp-card mapp-rows">
+            <div><dt>Wake word</dt><dd>“Hey Murmur”, off until you turn it on</dd></div>
+          </div>
+        </>
+      );
+    case 'dictionary':
+      return (
+        <>
+          <header className="mapp-head"><h3>Dictionary</h3><p>Names, brands and jargon Murmur should always get right.</p></header>
+          <div className="mapp-card">
+            <div className="chips">{WORDS.map((w) => <span key={w} className="chip">{w}<i aria-hidden>×</i></span>)}</div>
+            <div className="field">Add a word and press Return</div>
+          </div>
+        </>
+      );
+    case 'history':
+      return (
+        <>
+          <header className="mapp-head mapp-head--split"><div><h3>History</h3><p>Stored only on this computer.</p></div><span className="ghost-btn">Clear all</span></header>
+          <ul className="hist">
+            {HISTORY.map((h, i) => (
+              <li key={i}>
+                <div className="hist-meta"><span>{h.t}</span><span>{h.ms}</span></div>
+                <p className="hist-wrote">{h.wrote}</p>
+                <p className="hist-said">You said: {h.said}</p>
+              </li>
+            ))}
+          </ul>
+        </>
+      );
+  }
+}
+
+/** Every sidebar row is a full-width button; `children`, when given, replaces the default content of `page`. */
+export function MurmurApp({ page, children, dark = false, className = '', compact = false, os = 'mac' }: { page: AppPage; children?: ReactNode; dark?: boolean; className?: string; compact?: boolean; os?: OS }) {
+  const [cur, setCur] = useState<AppPage>(page);
+  const [moved, setMoved] = useState(false);
   return (
     <div className={`mapp ${dark ? 'mapp--dark' : ''} ${compact ? 'mapp--compact' : ''} ${className}`}>
       <aside className="mapp-side">
         <span className="lights" aria-hidden><i /><i /><i /></span>
-        <div className="mapp-brand"><MurmurIcon size={22} /><b>Murmur</b><span>v0.3</span></div>
-        <nav>
+        <div className="mapp-brand"><MurmurIcon size={22} /><b>Murmur</b><span>v0.4</span></div>
+        <nav aria-label="Murmur settings, example">
           {NAV.map((n) => (
-            <span key={n.id} className={n.id === page ? 'on' : ''}>{n.icon}{n.label}</span>
+            <button key={n.id} type="button" className={n.id === cur ? 'on' : ''} aria-current={n.id === cur ? 'page' : undefined} onClick={() => { setCur(n.id); setMoved(true); }}>
+              {n.icon}{n.label}
+            </button>
           ))}
         </nav>
         <div className="mapp-status"><i />Ready</div>
       </aside>
-      <div className="mapp-main">{children}</div>
+      {/* swaps on the click itself; a short CSS fade-in, no exit wait */}
+      <div key={cur} className={`mapp-main ${moved ? 'mapp-main--enter' : ''}`}>
+        {cur === page && children ? children : <DefaultPage id={cur} os={os} />}
+      </div>
     </div>
   );
 }

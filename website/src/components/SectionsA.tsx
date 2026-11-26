@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useLive, useTick, useTyped } from '../hooks';
 import { PASTE, SHORTCUT, type OS } from '../site';
 import { Key, Keys, MacWindow, Pill } from './Mock';
@@ -90,9 +90,11 @@ export function Mess() {
 export function Shortcut({ os }: { os: OS }) {
   const ref = useRef<HTMLElement>(null);
   const live = useLive(ref);
+  // Hovering pauses the demo loop; pointer-down (mouse, pen or touch) presses the keys and holding keeps them down.
   const [hover, setHover] = useState(false);
-  const tick = useTick(1500, live && !hover);
-  const pressed = hover || (live && tick % 2 === 0);
+  const [held, setHeld] = useState(false);
+  const tick = useTick(1500, live && !hover && !held);
+  const pressed = held || (live && !hover && tick % 2 === 0);
   const keys = SHORTCUT[os];
   const widths: Record<string, number> = os === 'mac' ? { Space: 3.2 } : { Ctrl: 1.25, Shift: 1.6, Space: 2.4 };
   return (
@@ -104,12 +106,22 @@ export function Shortcut({ os }: { os: OS }) {
             <AnimatePresence>
               {pressed && (
                 <motion.div initial={{ opacity: 0, y: 10, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6 }} transition={{ duration: 0.22 }}>
-                  <Pill state="listen" text="Listening" level={0.8} />
+                  <Pill state="listen" text={held ? "Listening. Let go to paste" : "Listening"} level={0.8} />
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
-          <div className="keys" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} aria-label={`Shortcut: ${keys.join(' + ')}`} role="img">
+          <div className={`keys ${held ? 'is-held' : ''}`}
+            onPointerEnter={(e) => e.pointerType === 'mouse' && setHover(true)}
+            onPointerLeave={() => setHover(false)}
+            onPointerDown={(e) => {
+              setHeld(true);
+              try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+            }}
+            onPointerUp={() => setHeld(false)}
+            onPointerCancel={() => setHeld(false)}
+            onLostPointerCapture={() => setHeld(false)}
+            onContextMenu={(e) => e.preventDefault()} aria-label={`Shortcut: ${keys.join(' + ')}`} role="img">
             {keys.map((k) => <Key key={k} label={k} wide={widths[k] ?? 1} pressed={pressed} />)}
           </div>
         </div>
@@ -192,9 +204,18 @@ function AppWindow({ app, front, nonce, live }: { app: App; front: boolean; nonc
 export function Everywhere() {
   const ref = useRef<HTMLElement>(null);
   const live = useLive(ref, 0.25);
-  const tick = useTick(3400, live);
-  // back-to-front order; each tick the back window comes to the front
-  const order = APPS.map((_, i) => APPS[(i + tick) % APPS.length]);
+  // back-to-front order; every 3.4 s the back window comes forward, and a click brings any window forward now
+  const [order, setOrder] = useState<App[]>(() => [...APPS]);
+  const [nonce, setNonce] = useState(0);
+  const bringForward = (id: App['id']) => {
+    setOrder((o) => [...o.filter((a) => a.id !== id), o.find((a) => a.id === id)!]);
+    setNonce((n) => n + 1);
+  };
+  useEffect(() => {
+    if (!live) return;
+    const t = window.setTimeout(() => bringForward(order[0].id), 3400);
+    return () => clearTimeout(t);
+  }, [live, nonce, order]);
   return (
     <section className="sec sec--white everywhere" ref={ref}>
       <div className="wrap everywhere-inner">
@@ -203,11 +224,15 @@ export function Everywhere() {
           <p className="body">Chat, mail, notes, your code editor. If you can type in it, Murmur can paste into it.</p>
         </div>
         <div className="fan">
-          {order.map((a, k) => (
-            <motion.div key={a.id} className="fan-slot" style={{ zIndex: k + 1 }} animate={{ x: k * 40, y: k * 40 }} transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}>
-              <AppWindow app={a} front={k === APPS.length - 1} nonce={tick} live={live} />
-            </motion.div>
-          ))}
+          {order.map((a, k) => {
+            const front = k === order.length - 1;
+            return (
+              <motion.button key={a.id} type="button" className={`fan-slot ${front ? 'is-front' : ''}`} style={{ zIndex: k + 1 }} aria-label={front ? `${a.title}, in front` : `Bring ${a.title} to the front`} aria-pressed={front}
+                onClick={() => !front && bringForward(a.id)} animate={{ x: k * 40, y: k * 40 }} transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}>
+                <AppWindow app={a} front={front} nonce={nonce} live={live} />
+              </motion.button>
+            );
+          })}
         </div>
       </div>
     </section>

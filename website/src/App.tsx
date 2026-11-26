@@ -38,9 +38,9 @@ export default function App() {
         <Shortcut os={os} />
         <Wake os={os} />
         <Everywhere />
-        <YourAi />
+        <YourAi os={os} />
         <Connect os={os} />
-        <Memory />
+        <Memory os={os} />
         <Privacy os={os} />
         <Permissions os={os} />
         <Install os={os} onOs={setOs} />
