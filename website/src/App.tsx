@@ -6,6 +6,7 @@ import { Everywhere, Mess, Shortcut, Wake } from './components/SectionsA';
 import { Finale, Memory, Privacy, YourAi } from './components/SectionsB';
 import { Connect, Install, Permissions } from './components/SectionsC';
 import { detectOS } from './site';
+import { OSContext } from './os';
 
 export default function App() {
   const [os, setOs] = useState(detectOS);
@@ -29,7 +30,7 @@ export default function App() {
   }, [loading]);
 
   return (
-    <>
+    <OSContext.Provider value={os}>
       {showLoader && <Loader leaving={!loading} onDone={done} />}
       <Nav os={os} onOs={setOs} />
       <main>
@@ -46,6 +47,6 @@ export default function App() {
         <Install os={os} onOs={setOs} />
         <Finale os={os} />
       </main>
-    </>
+    </OSContext.Provider>
   );
 }

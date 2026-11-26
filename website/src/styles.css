@@ -138,6 +138,35 @@ h3 { font-weight: 600; }
 .win--dark .win-bar { background: rgba(58, 58, 60, 0.9); border-bottom: var(--line-dark); }
 .win--dark .win-title { color: var(--n3); }
 
+/* Windows caption buttons: top-right, minimize · maximize · close, red close on hover (Windows 11 values) */
+.caps { display: flex; align-self: stretch; margin-left: auto; }
+.cap { width: 46px; display: grid; place-items: center; color: var(--n1); transition: background 80ms linear, color 80ms linear; }
+.cap svg { fill: none; stroke: currentColor; stroke-width: 1; shape-rendering: crispEdges; }
+.cap--close svg { shape-rendering: geometricPrecision; }
+.cap:hover { background: rgba(0, 0, 0, 0.06); }
+.cap:active { background: rgba(0, 0, 0, 0.1); color: rgba(29, 29, 31, 0.7); }
+.cap--close:hover { background: #c42b1c; color: var(--n6); }
+.cap--close:active { background: rgba(196, 43, 28, 0.9); color: rgba(255, 255, 255, 0.7); }
+.cap[aria-disabled='true'] { color: rgba(29, 29, 31, 0.36); background: none; }
+.win--dark .cap { color: var(--n5); }
+.win--dark .cap:hover { background: rgba(255, 255, 255, 0.08); }
+.win--dark .cap:active { background: rgba(255, 255, 255, 0.05); }
+.win--dark .cap--close:hover { background: #c42b1c; color: var(--n6); }
+.win--windows .win-bar { padding-right: 0; }
+.win--windows .win-title { position: static; text-align: left; font-weight: 400; font-size: 12px; color: var(--n1); }
+.win--windows.win--dark .win-title { color: var(--n5); }
+.term--windows .term-bar { padding-right: 0; }
+.term--windows .copy-all { margin-right: 8px; }
+
+/* settings window on Windows: native-style caption across the top, sidebar keeps its nav */
+.mapp--windows { grid-template-rows: 36px minmax(0, 1fr); }
+.mapp-caption { grid-column: 1 / -1; display: flex; align-items: stretch; padding-left: 12px; border-bottom: var(--line-light); background: rgba(0, 0, 0, 0.02); }
+.mapp--dark .mapp-caption { border-bottom: var(--line-dark); background: rgba(255, 255, 255, 0.02); }
+.mapp-caption-title { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.mapp--dark .cap { color: var(--n5); }
+.mapp--dark .cap:hover { background: rgba(255, 255, 255, 0.08); }
+.mapp--dark .cap--close:hover { background: #c42b1c; color: var(--n6); }
+
 .caret { display: inline-block; width: 2px; height: 1.1em; margin-left: 2px; background: currentColor; vertical-align: -0.18em; animation: blink 1.05s steps(1) infinite; }
 .caret--blue { background: var(--blue); }
 @keyframes blink { 50% { opacity: 0; } }
@@ -465,6 +494,7 @@ h3 { font-weight: 600; }
   .memory-wins { max-height: none; }
   .ai-app, .mem-app { height: auto; }
   .mapp, .mapp--compact { grid-template-columns: minmax(0, 1fr); }
+  .mapp--windows { grid-template-rows: 36px auto minmax(0, 1fr); }
   .mapp-side { min-width: 0; padding: 8px; border-right: 0; border-bottom: var(--line-light); }
   .mapp--dark .mapp-side { border-bottom: var(--line-dark); }
   .mapp-side > .lights, .mapp-brand, .mapp-status { display: none; }

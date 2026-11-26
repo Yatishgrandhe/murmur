@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { PASTE, SHORTCUT, type OS } from '../site';
 import { useInstaller } from '../useInstaller';
 import { AppleGlyph, IconCheck, IconCopy, WindowsGlyph } from './Icons';
-import { Keys } from './Mock';
+import { Keys, WindowControls } from './Mock';
 import { MurmurIcon } from './MurmurIcon';
 import { Segmented } from './SectionsA';
 
@@ -205,11 +205,12 @@ export function Install({ os, onOs }: { os: OS; onOs: (o: OS) => void }) {
               <summary>Build it from source instead</summary>
               <div className={`term term--${os}`}>
                 <div className="term-bar">
-                  {mac ? <span className="lights" aria-hidden><i /><i /><i /></span> : <span className="ps-icon" aria-hidden>&gt;_</span>}
+                  {mac ? <WindowControls os="mac" /> : <span className="ps-icon" aria-hidden>&gt;_</span>}
                   <span className="term-title">{mac ? 'murmur — zsh' : 'Windows PowerShell'}</span>
                   <button type="button" className="copy-all" onClick={() => copy('all', CMDS[os].join(mac ? ' && ' : '; '))}>
                     {copied === 'all' ? 'Copied' : 'Copy all'}
                   </button>
+                  {!mac && <WindowControls os="windows" />}
                 </div>
                 <div className="term-body">
                   {CMDS[os].map((c, i) => (

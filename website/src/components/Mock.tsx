@@ -3,14 +3,29 @@ import { KEY_NAME, SHORTCUT, type OS } from '../site';
 import { IconBook, IconClock, IconKey, IconSparkle, IconWave } from './Icons';
 import { MurmurIcon } from './MurmurIcon';
 import { Waveform } from './Waveform';
+import { useOS } from '../os';
 
-/* ---------- macOS window ---------- */
-export function MacWindow({ title, children, className = '', dark = false, style }: { title?: ReactNode; children: ReactNode; className?: string; dark?: boolean; style?: CSSProperties }) {
+/* ---------- Window chrome: traffic lights on macOS, caption buttons on Windows ----------
+   Pictures only: like the Mac lights, the Windows buttons react to hover and press but don't act. */
+export function WindowControls({ os }: { os: OS }) {
+  if (os === 'mac') return <span className="lights" aria-hidden><i /><i /><i /></span>;
   return (
-    <div className={`win ${dark ? 'win--dark' : ''} ${className}`} style={style}>
+    <span className="caps" aria-hidden>
+      <span className="cap cap--min"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 5.5h10" /></svg></span>
+      <span className="cap cap--max"><svg viewBox="0 0 10 10" width="10" height="10"><rect x="0.5" y="0.5" width="9" height="9" rx="1" /></svg></span>
+      <span className="cap cap--close"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M0.5 0.5l9 9M9.5 0.5l-9 9" /></svg></span>
+    </span>
+  );
+}
+
+export function MacWindow({ title, children, className = '', dark = false, style }: { title?: ReactNode; children: ReactNode; className?: string; dark?: boolean; style?: CSSProperties }) {
+  const os = useOS();
+  return (
+    <div className={`win win--${os} ${dark ? 'win--dark' : ''} ${className}`} style={style}>
       <div className="win-bar">
-        <span className="lights" aria-hidden><i /><i /><i /></span>
+        {os === 'mac' && <WindowControls os="mac" />}
         {title && <span className="win-title">{title}</span>}
+        {os === 'windows' && <WindowControls os="windows" />}
       </div>
       <div className="win-body">{children}</div>
     </div>
@@ -129,10 +144,17 @@ function DefaultPage({ id, os }: { id: AppPage; os: OS }) {
 export function MurmurApp({ page, children, dark = false, className = '', compact = false, os = 'mac' }: { page: AppPage; children?: ReactNode; dark?: boolean; className?: string; compact?: boolean; os?: OS }) {
   const [cur, setCur] = useState<AppPage>(page);
   const [moved, setMoved] = useState(false);
+  const chrome = useOS();
   return (
-    <div className={`mapp ${dark ? 'mapp--dark' : ''} ${compact ? 'mapp--compact' : ''} ${className}`}>
+    <div className={`mapp mapp--${chrome} ${dark ? 'mapp--dark' : ''} ${compact ? 'mapp--compact' : ''} ${className}`}>
+      {chrome === 'windows' && (
+        <div className="mapp-caption">
+          <span className="mapp-caption-title"><MurmurIcon size={16} />Murmur</span>
+          <WindowControls os="windows" />
+        </div>
+      )}
       <aside className="mapp-side">
-        <span className="lights" aria-hidden><i /><i /><i /></span>
+        {chrome === 'mac' && <WindowControls os="mac" />}
         <div className="mapp-brand"><MurmurIcon size={22} /><b>Murmur</b><span>v0.4</span></div>
         <nav aria-label="Murmur settings, example">
           {NAV.map((n) => (
