@@ -61,9 +61,12 @@ a system prompt on its own, and if a key press finds something missing it opens 
 
 Murmur never asks for Screen Recording, Full Disk Access, Input Monitoring, contacts or files.
 
-**After an update (macOS):** macOS ties permissions to the app's code signature. Release builds aren't yet signed with
-a Developer ID, so macOS may treat an update as a new app and ask again. If Accessibility shows **on** but pasting
-doesn't work, open setup and click **Reset Murmur's entry**, then allow it again.
+**After an update (macOS):** macOS ties permissions to the app's code signature. From v0.6.1 every release is signed
+with the same Murmur certificate, so updates keep Microphone and Accessibility. (The first update to v0.6.1 asks once
+more, because earlier builds were signed differently.) If an update ever finds a stale entry (Accessibility shown
+**on** but not working, or a microphone refusal from an older build), Murmur clears only its own entry on first
+launch so the setup button shows the macOS prompt again. The app carries the `audio-input` entitlement that macOS
+requires before it will show the microphone prompt at all.
 
 ### Speech recognition (Voice)
 

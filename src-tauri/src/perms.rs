@@ -87,6 +87,31 @@ pub fn reset_accessibility() -> Result<(), String> {
     }
 }
 
+/// First launch after an update (macOS). Permissions belong to a code signature; an update with
+/// a different one leaves entries that look "on" in System Settings but don't apply to this build
+/// (Accessibility), or a refusal from a build that couldn't ask (Microphone). Murmur clears only
+/// its own entries in those states, so the setup buttons show the macOS prompt again and Murmur
+/// is listed in Settings. Working permissions are never touched.
+pub fn heal_after_update() -> Vec<&'static str> {
+    let mut cleared = Vec::new();
+    #[cfg(target_os = "macos")]
+    {
+        let reset = |service: &str| {
+            std::process::Command::new("tccutil")
+                .args(["reset", service, "app.murmur.dictation"])
+                .output()
+                .is_ok_and(|o| o.status.success())
+        };
+        if !crate::paste::accessibility_ok() && reset("Accessibility") {
+            cleared.push("accessibility");
+        }
+        if mic_state() == "denied" && reset("Microphone") {
+            cleared.push("mic");
+        }
+    }
+    cleared
+}
+
 fn running_from_dmg() -> bool {
     #[cfg(target_os = "macos")]
     {

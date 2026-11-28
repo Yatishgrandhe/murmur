@@ -1200,6 +1200,22 @@ pub fn run() {
                 std::thread::spawn(move || run_selftest(h, c, wav));
             }
 
+            // first launch of a new version: clear stale permission entries from the old build
+            let version = handle.package_info().version.to_string();
+            let updated = {
+                let mut s = state.settings.lock();
+                let changed = s.last_version != version;
+                if changed {
+                    s.last_version = version.clone();
+                    settings::save(&settings_path(), &*s);
+                }
+                changed && s.onboarded
+            };
+            if updated && std::env::var_os("MURMUR_SELFTEST").is_none() {
+                let cleared = perms::heal_after_update();
+                report("perms_healed", serde_json::json!({"version": version, "cleared": cleared}));
+            }
+
             let first_run = { !state.settings.lock().onboarded };
             // Opened by the user → show the window. Started at login (--background) or by a
             // self-test → stay quietly in the menu bar unless setup isn't finished.

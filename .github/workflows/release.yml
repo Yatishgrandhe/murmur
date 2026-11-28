@@ -47,9 +47,13 @@ jobs:
         shell: bash
         run: bash scripts/fetch-model.sh
       - run: npm ci
-      # Developer ID signing + notarization, used only when the repo has these secrets.
-      # Without them the build is ad-hoc signed (macOS then asks for permissions again after updates).
-      - name: macOS signing (optional)
+      # macOS signing. A stable signature is what lets macOS keep Murmur's permissions across
+      # updates: permissions belong to the signing certificate, not to one build.
+      #  1. Developer ID (APPLE_CERTIFICATE...) when the repo has it: signed + notarized.
+      #  2. Otherwise Murmur's own self-signed certificate (MURMUR_SIGNING_P12): the same
+      #     certificate signs every release, so updates keep Microphone/Accessibility.
+      #  3. Neither: ad-hoc (every update is a new app to macOS).
+      - name: macOS signing
         if: runner.os == 'macOS'
         shell: bash
         env:
@@ -59,6 +63,8 @@ jobs:
           AID: ${{ secrets.APPLE_ID }}
           APW: ${{ secrets.APPLE_PASSWORD }}
           TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          OWN_P12: ${{ secrets.MURMUR_SIGNING_P12 }}
+          OWN_PW: ${{ secrets.MURMUR_SIGNING_P12_PASSWORD }}
         run: |
           if [ -n "$CERT" ] && [ -n "$IDENTITY" ]; then
             {
@@ -70,6 +76,24 @@ jobs:
               { echo "APPLE_ID=$AID"; echo "APPLE_PASSWORD=$APW"; echo "APPLE_TEAM_ID=$TEAM"; } >> "$GITHUB_ENV"
             fi
             echo "Signing with Developer ID"
+          elif [ -n "$OWN_P12" ]; then
+            KC="$RUNNER_TEMP/murmur-signing.keychain-db"
+            KC_PW="$(openssl rand -hex 16)"
+            echo "$OWN_P12" | base64 --decode > "$RUNNER_TEMP/murmur.p12"
+            security create-keychain -p "$KC_PW" "$KC"
+            security set-keychain-settings -lut 21600 "$KC"
+            security unlock-keychain -p "$KC_PW" "$KC"
+            security import "$RUNNER_TEMP/murmur.p12" -k "$KC" -P "$OWN_PW" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KC" > /dev/null
+            security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+            # codesign only uses a certificate trusted for code signing
+            openssl pkcs12 -in "$RUNNER_TEMP/murmur.p12" -passin pass:"$OWN_PW" -nokeys -legacy -out "$RUNNER_TEMP/murmur.pem" 2>/dev/null \
+              || openssl pkcs12 -in "$RUNNER_TEMP/murmur.p12" -passin pass:"$OWN_PW" -nokeys -out "$RUNNER_TEMP/murmur.pem"
+            sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$KC" "$RUNNER_TEMP/murmur.pem"
+            rm -f "$RUNNER_TEMP/murmur.p12"
+            security find-identity -v -p codesigning "$KC"
+            echo "APPLE_SIGNING_IDENTITY=Murmur Code Signing" >> "$GITHUB_ENV"
+            echo "Signing with Murmur's own certificate"
           else
             echo "No signing secrets: ad-hoc signed build"
           fi
@@ -86,3 +110,21 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+      # Fail loudly if the Mac app lacks the microphone entitlement or the stable certificate:
+      # without them macOS never shows the mic prompt, or forgets permissions on update.
+      - name: Check macOS signature
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          OWN_P12: ${{ secrets.MURMUR_SIGNING_P12 }}
+        run: |
+          APP=src-tauri/target/release/bundle/macos/Murmur.app
+          codesign -dv "$APP" 2>&1 | grep -E "Authority|flags|TeamIdentifier" || true
+          codesign -d -r- "$APP" 2>&1 | tail -1
+          codesign -d --entitlements - --xml "$APP" 2>/dev/null | grep -q "com.apple.security.device.audio-input" \
+            || { echo "::error::Murmur.app is missing the audio-input entitlement"; exit 1; }
+          if [ -n "$OWN_P12" ]; then
+            codesign -dv "$APP" 2>&1 | grep -q "Authority=Murmur Code Signing" \
+              || { echo "::error::Murmur.app is not signed with Murmur's certificate"; exit 1; }
+          fi
+          echo "Signature OK"

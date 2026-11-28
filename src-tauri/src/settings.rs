@@ -32,6 +32,9 @@ pub struct Settings {
     pub restore_clipboard: bool,
     pub sounds: bool,
     pub onboarded: bool,
+    /// Murmur version that last ran: on the first launch after an update, stale macOS permission
+    /// entries left by the previous build are cleared so the new build can be allowed.
+    pub last_version: String,
     /// Hands-free start by voice ("Hey Murmur"). Keeps the mic open while on.
     pub wake_word: bool,
     pub wake_phrase: String,
@@ -55,6 +58,7 @@ impl Default for Settings {
             restore_clipboard: false,
             sounds: true,
             onboarded: false,
+            last_version: String::new(),
             wake_word: false,
             wake_phrase: "Hey Murmur".into(),
         }
