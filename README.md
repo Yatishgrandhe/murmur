@@ -21,20 +21,20 @@ what you meant to type, and pastes it into the app you're in: Slack, Gmail, VS C
   (Free ChatGPT speech recognition reads the access token Codex saved and sends it only to chatgpt.com.)
   API keys and a no-AI mode are there too.
 - **Fast.** About **1 second** from letting go of the key to finished text, on an M4 MacBook (measured below).
-- **Free cloud speech-to-text with your ChatGPT plan.** Signed in to Codex with ChatGPT, Murmur sends your recording
-  (silence trimmed) to ChatGPT's transcription service, the one Codex's own voice input uses: far more accurate than
-  the laptop's recognizer, with no API key and no per-minute charge. You can also use an OpenAI API key
-  (`gpt-transcribe`, billed per minute) or the recognizer built into your OS (Apple Speech on macOS, Microsoft's on
-  Windows), which is also the fallback. Claude has no speech-to-text API, so Claude only does the rewrite.
-- **Tiny.** The installer is about 5 MB and the app under 10 MB. No voice model to download.
+- **Free, offline speech-to-text that ships in the installer.** A small Whisper model (tiny.en, 32 MB) comes with
+  Murmur and runs on your computer: no download, no account, nothing uploaded. On an M-series Mac a 14-second
+  dictation transcribes in about 0.1 s. You can switch to ChatGPT's transcription (free with a ChatGPT plan, through
+  Codex's sign-in) or to the recognizer built into your OS. Claude has no speech-to-text service other apps may use,
+  so Claude does the rewrite.
+- **Small.** The installer is about 35 MB, almost all of it the speech model.
 
 ## Install
 
 1. Open the [**Releases**](../../releases/latest) page and download one file:
-   - **macOS (Apple Silicon):** `Murmur_x.y.z_aarch64.dmg` (about 4 MB). Open it and drag Murmur into
+   - **macOS (Apple Silicon):** `Murmur_x.y.z_aarch64.dmg` (about 35 MB). Open it and drag Murmur into
      **Applications**, then open it from there. Running it straight from the disk image works, but macOS then won't
      remember its permissions. The first time, **right-click Murmur → Open**: the release isn't notarized by Apple yet.
-   - **Windows 10/11 (x64):** `Murmur_x.y.z_x64-setup.exe` (about 3 MB). It installs for your user only, with no admin
+   - **Windows 10/11 (x64):** `Murmur_x.y.z_x64-setup.exe` (about 35 MB). It installs for your user only, with no admin
      prompt. If SmartScreen warns you, click **More info → Run anyway**.
 2. Open Murmur. A setup window lists only the steps you haven't done yet: anything already allowed or connected
    (after a reinstall or update, say) is skipped.
@@ -42,9 +42,9 @@ what you meant to type, and pastes it into the app you're in: Slack, Gmail, VS C
    (Recycle Bin on Windows). Nothing is removed unless you click **Move to Trash**; **Keep** leaves it alone and Murmur
    won't ask about that file again.
 
-**Nothing else gets installed.** The installer contains only Murmur. It doesn't download voice models, runtimes or
-helpers, and it adds no background services beyond Murmur itself (and its optional "Open at login" entry). Murmur
-uses the speech recognizer and, on Windows, the WebView2 runtime that already ship with the OS. WebView2 comes with
+**Nothing else gets installed.** The installer contains only Murmur and its speech model. It doesn't download voice
+models, runtimes or helpers, and it adds no background services beyond Murmur itself (and its optional "Open at
+login" entry). On Windows Murmur uses the WebView2 runtime that ships with the OS. WebView2 comes with
 Windows 11 and with current Windows 10; on an old Windows 10 without it, install the Evergreen runtime from Microsoft
 first. The only optional download is the Claude Code or Codex app, and only if you click **Install** for it.
 
@@ -69,19 +69,24 @@ doesn't work, open setup and click **Reset Murmur's entry**, then allow it again
 
 **Voice → Speech recognition** chooses how your voice becomes text:
 
-- **ChatGPT plan · free** (default): needs the official Codex app signed in with ChatGPT (`codex login`). Murmur sends
+- **On this computer** (default): the Whisper tiny.en model (q5_1 quantized, 32 MB, from
+  [whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)) bundled in the installer, run by whisper.cpp (Metal on
+  Apple Silicon, CPU on Windows). It's loaded and warmed up when Murmur starts, silence is trimmed, and the encoder only
+  processes as much audio as you spoke, so a dictation takes well under a second (measured below). English only: for
+  other languages Murmur uses ChatGPT if you're signed in, otherwise the built-in recognizer. On macOS the wake word
+  uses this model too, so Speech Recognition permission isn't needed. The very first launch after installing compiles
+  the model's GPU code once (about 10 s, in the background).
+- **ChatGPT plan** (free with a plan): needs the official Codex app signed in with ChatGPT (`codex login`). Murmur sends
   the trimmed recording to `https://chatgpt.com/backend-api/transcribe` with the login Codex saved in
   `~/.codex/auth.json`, the same request Codex's backend client makes. Murmur never refreshes or changes that login:
   when the access token is close to expiring (every 10 days), it runs Codex once (`codex exec "Reply with just: ok"`)
   so Codex refreshes it, then reads the file again. This is Codex's endpoint, not a published API, so OpenAI may change
-  it; pick Built-in if it stops working. If Codex keeps its login in the keychain, set
+  it; pick On this computer if it stops working. If Codex keeps its login in the keychain, set
   `cli_auth_credentials_store = "file"` in `~/.codex/config.toml`.
-- **OpenAI API**: the recording is trimmed of silence and sent to
-  `POST /v1/audio/transcriptions` with `gpt-transcribe` (or `gpt-4o-mini-transcribe`, `gpt-4o-transcribe`,
-  `whisper-1`). Paste the key on the Voice page; it's the same keychain entry the **OpenAI API** rewrite option uses.
-  If OpenAI can't be reached, a Mac falls back to Apple Speech for that dictation. Silent or near-silent clips are
-  never uploaded, and phrases models invent from silence ("Thank you.", "Thanks for watching!") are dropped.
-- **Built-in**: Apple Speech on macOS, Windows speech recognition on Windows, as before.
+- **Built-in**: Apple Speech on macOS, Windows speech recognition on Windows.
+
+Silent clips are never transcribed, and phrases speech models invent from silence ("Thank you.", "Thanks for
+watching!") are dropped.
 
 Why no Claude option? Anthropic offers no speech-to-text API, and its terms don't allow third-party apps to use
 Claude.ai logins, so Claude (Pro/Max through Claude Code) does the rewrite only. The wake word always runs on the
@@ -137,9 +142,18 @@ not answered, and so does "ignore previous instructions…".
 If the AI fails (signed out, usage limit hit, offline), Murmur pastes your raw transcript and says why. You never lose
 what you said.
 
-## Measured (Apple M4, Apple on-device speech, Claude Haiku via a Pro plan)
+## Measured (Apple M4, Claude Haiku via a Pro plan)
 
-Speech-to-text on a 3.7 s clip: 0.36–0.49 s. The table below is from the earlier Whisper engine.
+Bundled Whisper tiny.en (q5_1, Metal), release build, model already loaded:
+
+| Clip | Speech-to-text |
+|---|---|
+| 1.2 s ("Ship it on Wednesday.") | 0.04 s |
+| 4.5 s | 0.05–0.06 s |
+| 14.3 s | 0.12 s |
+
+Loading the model at launch takes about 0.2 s (about 10 s once, the first time ever, while macOS compiles its GPU
+code). The table below is from the earlier Whisper engine.
 
 | Clip | Whisper | Release → text pasted |
 |---|---|---|
@@ -165,10 +179,12 @@ windows sit on screen, each pipeline stage with its time, and the final text. No
 
 ## Build from source
 
-Requirements: Rust (stable) and Node 18+. On Windows you also need the Visual Studio C++ build tools.
+Requirements: Rust (stable), Node 18+ and CMake. On Windows you also need the Visual Studio C++ build tools and LLVM
+(for whisper.cpp's bindings).
 
 ```bash
 npm install
+bash scripts/fetch-model.sh   # the 32 MB speech model bundled into the app (checksum-verified)
 npx tauri dev          # run with hot reload
 npx tauri build        # .app + .dmg on macOS, setup .exe on Windows
 cd src-tauri && cargo test --release
@@ -185,7 +201,8 @@ src-tauri/src/
   lib.rs       shortcut state machine (hold / tap-for-hands-free / esc), pipeline, windows, tray, commands
   audio.rs     mic capture thread, live levels for the waves, 16 kHz resampling, silence gate, UI chimes
   stt.rs       picks the speech engine; OS recognition: Apple Speech (macOS), Windows.Media.SpeechRecognition (Windows)
-  cloud_stt.rs OpenAI API speech-to-text (gpt-transcribe): energy VAD trim, in-memory WAV, keywords, phantom filter
+  local_stt.rs bundled Whisper tiny.en via whisper.cpp: loaded at launch, length-sized encoder context, freed at exit
+  vad.rs       energy VAD (silence trim / "nothing said"), WAV encoding, phantom-phrase filter
   chatgpt_stt.rs free ChatGPT-plan speech-to-text through Codex's sign-in (backend-api/transcribe), refresh via codex
   llm.rs       rewrite prompt + styles, Claude Code / Codex / API providers, pre-warming, output cleanup
   cli.rs       finds the claude/codex CLIs (GUI apps get a bare PATH), login status, install/sign-in terminals
@@ -212,6 +229,6 @@ ui/            overlay pill (canvas waves) and the settings / onboarding window.
 
 ## License
 
-Apache-2.0. Speech recognition by ChatGPT (with your plan) or OpenAI (with your API key), or by the operating system (Apple Speech on macOS,
-Windows speech recognition on Windows).
+Apache-2.0. Speech recognition by OpenAI's Whisper model (MIT) through whisper.cpp (MIT), by ChatGPT (with your plan),
+or by the operating system (Apple Speech on macOS, Windows speech recognition on Windows).
 Murmur is an independent project and is not affiliated with Anthropic or OpenAI.

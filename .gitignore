@@ -4,3 +4,5 @@ src-tauri/gen/
 .DS_Store
 .vercel
 .env*
+src-tauri/resources/*.bin
+src-tauri/resources/*.part

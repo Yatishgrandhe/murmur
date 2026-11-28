@@ -12,7 +12,7 @@
 //! There is no Claude equivalent Murmur may use: Anthropic has no speech-to-text API and does not
 //! allow third-party apps to use Claude.ai logins.
 
-use crate::cloud_stt::{is_phantom, trim_silence, wav_bytes};
+use crate::vad::{is_phantom, trim_silence, wav_bytes};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

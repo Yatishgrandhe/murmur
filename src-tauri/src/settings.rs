@@ -23,12 +23,10 @@ pub struct Settings {
     pub codex_model: String,
     pub anthropic_model: String,
     pub openai_model: String,
-    /// Speech-to-text engine: "chatgpt" (free with a ChatGPT plan, through Codex's sign-in),
-    /// "openai" (OpenAI API key, billed per minute) or "system" (the OS's built-in recognizer).
-    /// Without the sign-in or key it needs, a cloud engine falls back to the OS recognizer.
-    pub speech_engine: String,
-    /// OpenAI transcription model used when `speech_engine` is "openai".
-    pub speech_model: String,
+    /// Speech-to-text engine: "local" (the Whisper model bundled with Murmur, on this computer),
+    /// "chatgpt" (through Codex's ChatGPT sign-in) or "system" (the OS's built-in recognizer).
+    /// A new field name, so every install starts on "local".
+    pub voice: String,
     /// Words / names the speech model and the rewriter must spell exactly.
     pub dictionary: Vec<String>,
     pub restore_clipboard: bool,
@@ -52,8 +50,7 @@ impl Default for Settings {
             codex_model: String::new(),
             anthropic_model: "claude-haiku-5-5".into(),
             openai_model: "gpt-5-mini".into(),
-            speech_engine: "chatgpt".into(),
-            speech_model: "gpt-transcribe".into(),
+            voice: "local".into(),
             dictionary: vec![],
             restore_clipboard: false,
             sounds: true,

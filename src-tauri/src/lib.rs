@@ -7,13 +7,14 @@
 pub mod audio;
 pub mod chatgpt_stt;
 pub mod cli;
-pub mod cloud_stt;
+pub mod local_stt;
 pub mod llm;
 pub mod paste;
 pub mod perms;
 pub mod settings;
 pub mod setup;
 pub mod stt;
+pub mod vad;
 pub mod wake;
 
 use parking_lot::Mutex;
@@ -203,11 +204,9 @@ fn begin(app: &AppHandle, c: &Arc<Core>, hands_free: bool) {
     // Warm up the rewriter now so its startup overlaps with speaking.
     let pending = llm::Pending::start(&s);
     // OpenAI speech needs no live OS session (on Windows that would also send audio to Microsoft)
-    let live = if stt::uses_cloud(&s) {
-        if s.speech_engine == "chatgpt" {
+    let live = if stt::uses_own_audio(&s) {
+        if stt::engine_for(&s) == "chatgpt" {
             chatgpt_stt::warm_up();
-        } else {
-            cloud_stt::warm_up();
         }
         None
     } else {
@@ -405,7 +404,10 @@ fn wake_loop(app: AppHandle, c: Arc<Core>) {
     let mut announced = false;
     loop {
         let s = c.settings.lock().clone();
-        if !s.wake_word || !stt::system_status().ready || !matches!(perms::check().mic, "granted" | "unknown") {
+        // macOS checks clips with the bundled model (or Apple's on-device recognizer); Windows uses
+        // its offline phrase recognizer
+        let local_wake = cfg!(target_os = "macos") && local_stt::ready() && matches!(s.language.as_str(), "en" | "auto");
+        if !s.wake_word || !(local_wake || stt::system_status().ready) || !matches!(perms::check().mic, "granted" | "unknown") {
             announced = false;
             std::thread::sleep(Duration::from_millis(700));
             continue;
@@ -455,7 +457,12 @@ fn wake_loop(app: AppHandle, c: Arc<Core>) {
             }
             for clip in seg.push(chunk) {
                 // only the wake check runs here: nothing is logged or sent unless it matches
-                let Ok(text) = stt::transcribe_private(&clip, &s.language, std::slice::from_ref(&s.wake_phrase)) else { continue };
+                let heard = if local_wake {
+                    local_stt::transcribe(&clip, std::slice::from_ref(&s.wake_phrase))
+                } else {
+                    stt::transcribe_private(&clip, &s.language, std::slice::from_ref(&s.wake_phrase))
+                };
+                let Ok(text) = heard else { continue };
                 let hit = wake::match_wake(&text, &s.wake_phrase);
                 // diagnostics without content: clip length and whether it matched, never the words
                 report("wake_clip", serde_json::json!({"seconds": clip.len() as f32 / 16_000.0, "matched": hit.is_some()}));
@@ -1016,7 +1023,7 @@ fn quit(app: AppHandle) {
 pub fn run() {
     let settings: Settings = settings::load(&settings_path());
     stt::configure(&settings);
-    if settings.speech_engine == "chatgpt" {
+    if settings.voice == "chatgpt" {
         std::thread::spawn(chatgpt_stt::keep_fresh);
     }
     let history: Vec<HistoryItem> = settings::load(&history_path());
@@ -1085,6 +1092,7 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            local_stt::init(app.path().resource_dir().ok());
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let handle = app.handle().clone();
@@ -1210,6 +1218,10 @@ pub fn run() {
         .expect("error while building Murmur")
         .run(|app, ev| {
             let _ = (&app, &ev); // only used on macOS
+            // free the speech model first: whisper.cpp's Metal backend aborts at exit otherwise
+            if let tauri::RunEvent::Exit = ev {
+                local_stt::shutdown();
+            }
             // clicking Murmur in Finder/Spotlight/Dock while it's already running
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = ev {

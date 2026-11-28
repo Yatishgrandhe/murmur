@@ -1,6 +1,7 @@
-//! Speech-to-text. Dictation goes to ChatGPT through Codex's sign-in (free with a ChatGPT plan,
-//! [`crate::chatgpt_stt`]) or to the OpenAI API with an API key ([`crate::cloud_stt`]), as chosen
-//! in Voice. Without that sign-in or key, and always for the wake word, Murmur uses
+//! Speech-to-text. By default dictation is transcribed on the computer by the Whisper model that
+//! ships in the installer ([`crate::local_stt`]); it can also go to ChatGPT through Codex's
+//! sign-in ([`crate::chatgpt_stt`]). The "Built-in" choice, other languages without ChatGPT, and
+//! the wake word use
 //! the recognizer built into the operating system: Apple's Speech framework on macOS (on-device
 //! when the Mac supports it) and Microsoft's Windows speech recognition on Windows.
 //!
@@ -52,69 +53,74 @@ pub fn clean_transcript(s: &str) -> String {
     t
 }
 
-/// (engine, OpenAI model) chosen in settings, so [`status`] can report the active engine.
+/// Voice engine chosen in settings, so [`status`] can report the active one.
 static ENGINE: parking_lot::Mutex<(String, String)> = parking_lot::Mutex::new((String::new(), String::new()));
 
-/// Remembers the chosen engine and model.
+/// Remembers the chosen engine (and language, which decides whether the English model fits).
 pub fn configure(s: &crate::settings::Settings) {
-    *ENGINE.lock() = (s.speech_engine.clone(), s.speech_model.clone());
+    *ENGINE.lock() = (s.voice.clone(), s.language.clone());
 }
 
-fn cloud_ready(engine: &str) -> bool {
-    match engine {
-        "chatgpt" => crate::chatgpt_stt::available(),
-        "openai" => crate::cloud_stt::has_key(),
-        _ => false,
+/// The engine a dictation will use: the chosen one when it is set up, otherwise the next best.
+/// The bundled model is English-only, so other languages use ChatGPT (if signed in) or the OS.
+fn effective(voice: &str, lang: &str) -> &'static str {
+    let english = matches!(lang, "en" | "auto" | "");
+    let chatgpt = || crate::chatgpt_stt::available();
+    match voice {
+        "system" => "system",
+        "chatgpt" if chatgpt() => "chatgpt",
+        _ if english && crate::local_stt::ready() => "local",
+        _ if !english && chatgpt() => "chatgpt",
+        _ => "system",
     }
 }
 
-/// The dictation goes to a cloud engine (ChatGPT plan or OpenAI API) that is set up.
-pub fn uses_cloud(s: &crate::settings::Settings) -> bool {
-    cloud_ready(&s.speech_engine)
+/// Murmur transcribes its own recording (local model or ChatGPT), so no OS live session is needed.
+pub fn uses_own_audio(s: &crate::settings::Settings) -> bool {
+    effective(&s.voice, &s.language) != "system"
+}
+
+pub fn engine_for(s: &crate::settings::Settings) -> &'static str {
+    effective(&s.voice, &s.language)
 }
 
 /// Status of the engine dictation will actually use.
 pub fn status() -> Status {
-    let (engine, model) = ENGINE.lock().clone();
-    if cloud_ready(&engine) {
-        let detail = if engine == "chatgpt" {
-            crate::chatgpt_stt::detail()
-        } else {
-            format!("OpenAI {}", if model.trim().is_empty() { crate::cloud_stt::DEFAULT_MODEL } else { model.trim() })
-        };
-        let name = if engine == "chatgpt" { "chatgpt" } else { "openai" };
-        return Status { engine: name, ready: true, can_request: false, on_device: false, detail };
+    let (voice, lang) = ENGINE.lock().clone();
+    match effective(&voice, &lang) {
+        "local" => Status { engine: "local", ready: true, can_request: false, on_device: true, detail: crate::local_stt::detail() },
+        "chatgpt" => Status { engine: "chatgpt", ready: true, can_request: false, on_device: false, detail: crate::chatgpt_stt::detail() },
+        _ => system_status(),
     }
-    system_status()
 }
 
-/// Transcribes a finished dictation with the chosen engine. When OpenAI fails for a passing
-/// reason (network, busy) on macOS, the recording is retried with Apple's recognizer.
-/// Returns the text and the engine that produced it.
+/// Transcribes a finished dictation with the active engine. If the local model or ChatGPT fails
+/// (ChatGPT only for passing reasons like the network), the recording is retried with the OS
+/// recognizer on macOS. Returns the text and the engine that produced it.
 pub fn dictate(live: Option<Result<Live, String>>, audio: &[f32], s: &crate::settings::Settings) -> (Result<String, String>, &'static str) {
-    if uses_cloud(s) {
-        let chatgpt = s.speech_engine == "chatgpt";
-        let name = if chatgpt { "chatgpt" } else { "openai" };
-        let res = if chatgpt {
-            crate::chatgpt_stt::transcribe(audio)
+    let engine = engine_for(s);
+    if engine != "system" {
+        let res = if engine == "local" {
+            crate::local_stt::transcribe(audio, &s.dictionary)
         } else {
-            crate::cloud_stt::transcribe(audio, &s.speech_model, &s.language, &s.dictionary)
+            crate::chatgpt_stt::transcribe(audio)
         };
+        let retry_os = |e: &str| cfg!(target_os = "macos") && (engine == "local" || crate::vad::is_transient(e)) && system_status().ready;
         match res {
             Ok(t) => {
                 if let Some(Ok(l)) = live {
                     l.cancel();
                 }
-                return (Ok(t), name);
+                return (Ok(t), engine);
             }
-            Err(e) if crate::cloud_stt::is_transient(&e) && cfg!(target_os = "macos") && system_status().ready => {
-                crate::report("stt_fallback", serde_json::json!(e));
+            Err(e) if retry_os(&e) => {
+                crate::report("stt_fallback", serde_json::json!({"engine": engine, "error": e}));
             }
             Err(e) => {
                 if let Some(Ok(l)) = live {
                     l.cancel();
                 }
-                return (Err(e), name);
+                return (Err(e), engine);
             }
         }
     }

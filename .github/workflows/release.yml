@@ -37,6 +37,15 @@ jobs:
         with:
           workspaces: src-tauri
           key: vs2022
+      - name: LLVM for bindgen (whisper.cpp)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install llvm -y --no-progress
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+      - name: Bundled speech model
+        shell: bash
+        run: bash scripts/fetch-model.sh
       - run: npm ci
       # Developer ID signing + notarization, used only when the repo has these secrets.
       # Without them the build is ad-hoc signed (macOS then asks for permissions again after updates).
