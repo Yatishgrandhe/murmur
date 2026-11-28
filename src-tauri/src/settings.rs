@@ -23,8 +23,9 @@ pub struct Settings {
     pub codex_model: String,
     pub anthropic_model: String,
     pub openai_model: String,
-    /// Speech-to-text engine: "openai" (OpenAI API, needs the OpenAI API key; falls back to the
-    /// OS recognizer without one) or "system" (the OS's built-in recognizer).
+    /// Speech-to-text engine: "chatgpt" (free with a ChatGPT plan, through Codex's sign-in),
+    /// "openai" (OpenAI API key, billed per minute) or "system" (the OS's built-in recognizer).
+    /// Without the sign-in or key it needs, a cloud engine falls back to the OS recognizer.
     pub speech_engine: String,
     /// OpenAI transcription model used when `speech_engine` is "openai".
     pub speech_model: String,
@@ -51,7 +52,7 @@ impl Default for Settings {
             codex_model: String::new(),
             anthropic_model: "claude-haiku-5-5".into(),
             openai_model: "gpt-5-mini".into(),
-            speech_engine: "openai".into(),
+            speech_engine: "chatgpt".into(),
             speech_model: "gpt-transcribe".into(),
             dictionary: vec![],
             restore_clipboard: false,

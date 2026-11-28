@@ -6,7 +6,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 
 // ───────── bridge (with a mock so the UI can be previewed in a browser) ─────────
 const mock = (() => {
-  const s = { shortcut: 'Alt+Space', provider: 'claude', style: 'clean', custom_prompt: '', language: 'en', claude_model: 'haiku', codex_model: '', anthropic_model: 'claude-haiku-5-5', openai_model: 'gpt-5-mini', speech_engine: 'openai', speech_model: 'gpt-transcribe', dictionary: ['Kubernetes', 'Murmur'], restore_clipboard: true, sounds: true, onboarded: !location.hash.includes('onboard') };
+  const s = { shortcut: 'Alt+Space', provider: 'claude', style: 'clean', custom_prompt: '', language: 'en', claude_model: 'haiku', codex_model: '', anthropic_model: 'claude-haiku-5-5', openai_model: 'gpt-5-mini', speech_engine: 'chatgpt', speech_model: 'gpt-transcribe', dictionary: ['Kubernetes', 'Murmur'], restore_clipboard: true, sounds: true, onboarded: !location.hash.includes('onboard') };
   const now = Date.now();
   const history = [
     { ts: now - 6e4, raw: 'um so can you send me the the report by friday no sorry thursday thanks', text: 'Can you send me the report by Thursday? Thanks!', provider: 'claude', seconds: 5.2, ms: 1180 },
@@ -300,15 +300,25 @@ $('#autostart').onchange = async e => { try { await invoke('set_launch_at_login'
 $('#permBtn').onclick = () => invoke('open_privacy', { which: 'accessibility' });
 function renderPerm() { $('#permCard').classList.toggle('hidden', !isMac() || !ps || ps.accessibility); }
 
-// ───────── voice (OpenAI speech-to-text, or the OS's built-in recognizer) ─────────
+// ───────── voice (ChatGPT plan, OpenAI API, or the OS's built-in recognizer) ─────────
 const speechOk = () => !!st.speech?.ready;
-const cloudVoice = () => st.settings.speech_engine === 'openai';
 function renderSpeech() {
-  const sys = st.systemSpeech || st.speech || {}, mac = isMac(), cloud = cloudVoice(), hasKey = !!ps?.openaiKey;
+  const sys = st.systemSpeech || st.speech || {}, mac = isMac(), hasKey = !!ps?.openaiKey;
+  const eng = ['chatgpt', 'openai', 'system'].includes(st.settings.speech_engine) ? st.settings.speech_engine : 'chatgpt';
   const osName = mac ? 'Apple Speech' : 'Windows Speech';
-  const seg = `<div class="seg" id="engineSeg"><button data-e="openai" class="${cloud ? 'on' : ''}">OpenAI</button><button data-e="system" class="${cloud ? '' : 'on'}">Built-in (${mac ? 'Apple' : 'Windows'})</button></div>`;
+  const seg = `<div class="seg" id="engineSeg">${[['chatgpt', 'ChatGPT plan · free'], ['openai', 'OpenAI API'], ['system', `Built-in (${mac ? 'Apple' : 'Windows'})`]]
+    .map(([v, l]) => `<button data-e="${v}" class="${eng === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   let body;
-  if (cloud) {
+  if (eng === 'chatgpt') {
+    const cx = ps?.codex || {}, ready = st.speech?.engine === 'chatgpt';
+    const action = ready ? '<span class="badge ok">Ready</span>'
+      : !cx.installed ? '<button class="btn primary" data-vsetup="install">Install Codex</button>'
+      : '<button class="btn primary" data-vsetup="login">Sign in with ChatGPT</button>';
+    body = `<div class="pd"><div class="grow"><b>ChatGPT speech recognition</b><p>${ready
+        ? 'Free with your ChatGPT plan. Murmur uses the sign-in of the official Codex app, so there is no API key and no per-minute charge.'
+        : esc(st.speech?.engine === 'chatgpt' ? '' : (cx.installed ? 'Sign in to Codex with your ChatGPT account to use it.' : 'Install the official Codex app and sign in with ChatGPT to use it.')) + ` Until then Murmur uses ${osName}.`}</p></div>${action}</div>
+      <p class="muted" style="margin:12px 0 0">Your recording (silence trimmed) goes to ChatGPT, the same service Codex's own voice input uses. It isn't a published API, so OpenAI could change it; if it stops working, pick Built-in.${mac ? ' If ChatGPT can’t be reached, Murmur falls back to Apple Speech.' : ''} There's no Claude option: Anthropic has no speech-to-text API and doesn't let other apps use Claude logins, so Claude only does the rewrite. The wake word always stays on this computer.</p>`;
+  } else if (eng === 'openai') {
     const model = st.settings.speech_model || 'gpt-transcribe';
     body = `<div class="pd"><div class="grow"><b>OpenAI ${esc(model)}</b><p>${hasKey
         ? 'Your recording is sent to OpenAI with your API key and transcribed there. Silence is trimmed first, and your Dictionary words are sent as spelling hints.'
@@ -318,7 +328,7 @@ function renderSpeech() {
         ${[['gpt-transcribe', 'gpt-transcribe (recommended)'], ['gpt-4o-mini-transcribe', 'gpt-4o-mini-transcribe (cheapest)'], ['gpt-4o-transcribe', 'gpt-4o-transcribe'], ['whisper-1', 'whisper-1']]
           .map(([v, l]) => `<option value="${v}"${v === model ? ' selected' : ''}>${l}</option>`).join('')}
       </select></div>
-      <p class="muted" style="margin:10px 0 0">Uses the same key as the <b>OpenAI API</b> option in AI. Claude has no speech-to-text API, so Claude (or ChatGPT) rewrites the transcript after OpenAI hears it.${mac ? ' If OpenAI can’t be reached, Murmur falls back to Apple Speech.' : ''} The wake word always stays on this computer.</p>`;
+      <p class="muted" style="margin:10px 0 0">Billed to your OpenAI API account (about $0.0045 a minute with gpt-transcribe). Uses the same key as the <b>OpenAI API</b> option in AI.${mac ? ' If OpenAI can’t be reached, Murmur falls back to Apple Speech.' : ''} The wake word always stays on this computer.</p>`;
   } else {
     const where = mac
       ? (sys.on_device ? 'Runs on this Mac. Your audio stays here.' : "Uses Apple's speech recognition. On Macs without on-device support, audio is sent to Apple to be transcribed.")
@@ -335,12 +345,20 @@ function renderSpeech() {
     if (await save({ speech_engine: btn.dataset.e })) await refreshSpeech();
   });
   const b = $('#speechBtn'); if (b) b.onclick = requestSpeech;
+  $$('[data-vsetup]').forEach(x => x.onclick = async () => {
+    try { await invoke('setup_provider', { provider: 'codex', action: x.dataset.vsetup }); toast('Finish in the terminal window, then come back'); pollVoiceCodex(); } catch (e) { toast(String(e)); }
+  });
   const kb = $('#voiceKeyBtn'); if (kb) kb.onclick = async () => {
     const v = $('#voiceKey').value.trim(); if (!v) return toast('Paste your OpenAI API key first');
     try { await invoke('set_api_key', { name: 'openai_key', value: v }); toast('Key saved to keychain'); await refreshProviders(); await refreshSpeech(); } catch (e) { toast(String(e)); }
   };
   const sm = $('#speechModel'); if (sm) sm.onchange = e => save({ speech_model: e.target.value }).then(refreshSpeech);
   $('#language').value = st.settings.language;
+}
+let voiceT = null;
+function pollVoiceCodex() {
+  clearInterval(voiceT); let n = 0;
+  voiceT = setInterval(async () => { await refreshProviders(); await refreshSpeech(); if (st.speech?.engine === 'chatgpt' || ++n > 60) clearInterval(voiceT); }, 3000);
 }
 async function refreshSpeech() {
   const g = await invoke('get_state');

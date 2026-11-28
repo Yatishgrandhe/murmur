@@ -163,7 +163,7 @@ fn friendly(code: u16, v: &serde_json::Value) -> String {
 /// Whether a failure is worth retrying with the OS recognizer (network/server trouble), as
 /// opposed to something the user must fix (key, credit).
 pub fn is_transient(err: &str) -> bool {
-    err.starts_with("Network") || err.contains("busy") || err.contains("rate-limiting") || err.contains("timed out")
+    err.starts_with("Network") || err.contains("busy") || err.contains("rate-limiting") || err.contains("timed out") || err.contains("limit was reached")
 }
 
 fn send(wav: &[u8], model: &str, lang: &str, vocab: &[String], rich: bool) -> Result<(u16, serde_json::Value), String> {

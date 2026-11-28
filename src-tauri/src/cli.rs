@@ -131,6 +131,16 @@ fn output_within(c: &mut Command, limit: Duration) -> std::io::Result<std::proce
     child.wait_with_output()
 }
 
+/// Runs a CLI to completion within `limit`; Err unless it exits successfully.
+pub fn run_within(c: &mut Command, limit: Duration) -> std::io::Result<std::process::Output> {
+    let out = output_within(c, limit)?;
+    if out.status.success() {
+        Ok(out)
+    } else {
+        Err(std::io::Error::other(String::from_utf8_lossy(&out.stderr).trim().to_string()))
+    }
+}
+
 /// A `Command` for a CLI with the augmented PATH and no console window on Windows.
 pub fn command(bin: &Path) -> Command {
     let mut c = Command::new(bin);

@@ -1,5 +1,6 @@
-//! Speech-to-text. With an OpenAI API key and the Voice engine set to "OpenAI", dictation goes to
-//! OpenAI's transcription API ([`crate::cloud_stt`]). Otherwise, and for the wake word, Murmur uses
+//! Speech-to-text. Dictation goes to ChatGPT through Codex's sign-in (free with a ChatGPT plan,
+//! [`crate::chatgpt_stt`]) or to the OpenAI API with an API key ([`crate::cloud_stt`]), as chosen
+//! in Voice. Without that sign-in or key, and always for the wake word, Murmur uses
 //! the recognizer built into the operating system: Apple's Speech framework on macOS (on-device
 //! when the Mac supports it) and Microsoft's Windows speech recognition on Windows.
 //!
@@ -51,26 +52,38 @@ pub fn clean_transcript(s: &str) -> String {
     t
 }
 
-static CLOUD_ENGINE: parking_lot::Mutex<Option<String>> = parking_lot::Mutex::new(None);
+/// (engine, OpenAI model) chosen in settings, so [`status`] can report the active engine.
+static ENGINE: parking_lot::Mutex<(String, String)> = parking_lot::Mutex::new((String::new(), String::new()));
 
-/// Remembers the chosen engine and model so [`status`] can report the active one.
+/// Remembers the chosen engine and model.
 pub fn configure(s: &crate::settings::Settings) {
-    *CLOUD_ENGINE.lock() = (s.speech_engine == "openai").then(|| s.speech_model.clone());
+    *ENGINE.lock() = (s.speech_engine.clone(), s.speech_model.clone());
 }
 
-/// The dictation goes to OpenAI: the engine is "openai" and an OpenAI API key is saved.
+fn cloud_ready(engine: &str) -> bool {
+    match engine {
+        "chatgpt" => crate::chatgpt_stt::available(),
+        "openai" => crate::cloud_stt::has_key(),
+        _ => false,
+    }
+}
+
+/// The dictation goes to a cloud engine (ChatGPT plan or OpenAI API) that is set up.
 pub fn uses_cloud(s: &crate::settings::Settings) -> bool {
-    s.speech_engine == "openai" && crate::cloud_stt::has_key()
+    cloud_ready(&s.speech_engine)
 }
 
 /// Status of the engine dictation will actually use.
 pub fn status() -> Status {
-    let model = CLOUD_ENGINE.lock().clone();
-    if let Some(m) = model {
-        if crate::cloud_stt::has_key() {
-            let m = if m.trim().is_empty() { crate::cloud_stt::DEFAULT_MODEL.to_string() } else { m };
-            return Status { engine: "openai", ready: true, can_request: false, on_device: false, detail: format!("OpenAI {m}") };
-        }
+    let (engine, model) = ENGINE.lock().clone();
+    if cloud_ready(&engine) {
+        let detail = if engine == "chatgpt" {
+            crate::chatgpt_stt::detail()
+        } else {
+            format!("OpenAI {}", if model.trim().is_empty() { crate::cloud_stt::DEFAULT_MODEL } else { model.trim() })
+        };
+        let name = if engine == "chatgpt" { "chatgpt" } else { "openai" };
+        return Status { engine: name, ready: true, can_request: false, on_device: false, detail };
     }
     system_status()
 }
@@ -80,12 +93,19 @@ pub fn status() -> Status {
 /// Returns the text and the engine that produced it.
 pub fn dictate(live: Option<Result<Live, String>>, audio: &[f32], s: &crate::settings::Settings) -> (Result<String, String>, &'static str) {
     if uses_cloud(s) {
-        match crate::cloud_stt::transcribe(audio, &s.speech_model, &s.language, &s.dictionary) {
+        let chatgpt = s.speech_engine == "chatgpt";
+        let name = if chatgpt { "chatgpt" } else { "openai" };
+        let res = if chatgpt {
+            crate::chatgpt_stt::transcribe(audio)
+        } else {
+            crate::cloud_stt::transcribe(audio, &s.speech_model, &s.language, &s.dictionary)
+        };
+        match res {
             Ok(t) => {
                 if let Some(Ok(l)) = live {
                     l.cancel();
                 }
-                return (Ok(t), "openai");
+                return (Ok(t), name);
             }
             Err(e) if crate::cloud_stt::is_transient(&e) && cfg!(target_os = "macos") && system_status().ready => {
                 crate::report("stt_fallback", serde_json::json!(e));
@@ -94,7 +114,7 @@ pub fn dictate(live: Option<Result<Live, String>>, audio: &[f32], s: &crate::set
                 if let Some(Ok(l)) = live {
                     l.cancel();
                 }
-                return (Err(e), "openai");
+                return (Err(e), name);
             }
         }
     }

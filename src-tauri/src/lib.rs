@@ -5,6 +5,7 @@
 //! focused app. Esc cancels.
 
 pub mod audio;
+pub mod chatgpt_stt;
 pub mod cli;
 pub mod cloud_stt;
 pub mod llm;
@@ -203,7 +204,11 @@ fn begin(app: &AppHandle, c: &Arc<Core>, hands_free: bool) {
     let pending = llm::Pending::start(&s);
     // OpenAI speech needs no live OS session (on Windows that would also send audio to Microsoft)
     let live = if stt::uses_cloud(&s) {
-        cloud_stt::warm_up();
+        if s.speech_engine == "chatgpt" {
+            chatgpt_stt::warm_up();
+        } else {
+            cloud_stt::warm_up();
+        }
         None
     } else {
         stt::start_live(&s.language, &s.dictionary)
@@ -1011,6 +1016,9 @@ fn quit(app: AppHandle) {
 pub fn run() {
     let settings: Settings = settings::load(&settings_path());
     stt::configure(&settings);
+    if settings.speech_engine == "chatgpt" {
+        std::thread::spawn(chatgpt_stt::keep_fresh);
+    }
     let history: Vec<HistoryItem> = settings::load(&history_path());
     let state = Arc::new(Core {
         settings: Mutex::new(settings),
