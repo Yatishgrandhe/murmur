@@ -119,12 +119,12 @@ jobs:
           OWN_P12: ${{ secrets.MURMUR_SIGNING_P12 }}
         run: |
           APP=src-tauri/target/release/bundle/macos/Murmur.app
-          codesign -dv "$APP" 2>&1 | grep -E "Authority|flags|TeamIdentifier" || true
+          codesign -dvv "$APP" 2>&1 | grep -E "Authority|flags|TeamIdentifier" || true
           codesign -d -r- "$APP" 2>&1 | tail -1
           codesign -d --entitlements - --xml "$APP" 2>/dev/null | grep -q "com.apple.security.device.audio-input" \
             || { echo "::error::Murmur.app is missing the audio-input entitlement"; exit 1; }
           if [ -n "$OWN_P12" ]; then
-            codesign -dv "$APP" 2>&1 | grep -q "Authority=Murmur Code Signing" \
+            codesign -dvv "$APP" 2>&1 | grep -q "Authority=Murmur Code Signing" \
               || { echo "::error::Murmur.app is not signed with Murmur's certificate"; exit 1; }
           fi
           echo "Signature OK"
