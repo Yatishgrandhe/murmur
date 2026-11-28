@@ -1,6 +1,6 @@
 [package]
 name = "murmur"
-version = "0.4.0"
+version = "0.5.0"
 description = "Hold a key, speak, get polished text in any app."
 edition = "2021"
 license = "Apache-2.0"
@@ -23,7 +23,7 @@ parking_lot = "0.12"
 cpal = "0.15"
 arboard = "3"
 enigo = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking", "multipart"] }
 which = "7"
 dirs = "6"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }

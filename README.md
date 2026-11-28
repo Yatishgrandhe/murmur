@@ -20,9 +20,12 @@ what you meant to type, and pastes it into the app you're in: Slack, Gmail, VS C
   app, or your **ChatGPT Plus/Pro** plan through the official Codex app. Murmur never sees your password or tokens.
   API keys and a no-AI mode are there too.
 - **Fast.** About **1 second** from letting go of the key to finished text, on an M4 MacBook (measured below).
-- **Built-in speech-to-text, nothing to download.** Murmur uses the recognizer that ships with your OS: Apple's Speech
-  framework on macOS (on-device when your Mac supports it) and Microsoft's speech recognition on Windows.
-  Only the transcript text goes to the AI you chose.
+- **Cloud speech-to-text with OpenAI, or the one built into your OS.** With an OpenAI API key, Murmur sends your
+  recording to OpenAI's `gpt-transcribe` (silence trimmed first, your Dictionary words sent as spelling hints), which
+  is far more accurate than the laptop's recognizer. Without a key, or if you pick **Built-in** in Voice, it uses the
+  recognizer that ships with your OS: Apple's Speech framework on macOS (on-device when your Mac supports it) and
+  Microsoft's speech recognition on Windows. Claude has no speech-to-text API, so Claude (or ChatGPT) rewrites the
+  transcript after it's heard. Nothing to download either way.
 - **Tiny.** The installer is about 5 MB and the app under 10 MB. No voice model to download.
 
 ## Install
@@ -61,6 +64,21 @@ Murmur never asks for Screen Recording, Full Disk Access, Input Monitoring, cont
 **After an update (macOS):** macOS ties permissions to the app's code signature. Release builds aren't yet signed with
 a Developer ID, so macOS may treat an update as a new app and ask again. If Accessibility shows **on** but pasting
 doesn't work, open setup and click **Reset Murmur's entry**, then allow it again.
+
+### Speech recognition (Voice)
+
+**Voice → Speech recognition** chooses how your voice becomes text:
+
+- **OpenAI** (default when you've saved an OpenAI API key): the recording is trimmed of silence and sent to
+  `POST /v1/audio/transcriptions` with `gpt-transcribe` (or `gpt-4o-mini-transcribe`, `gpt-4o-transcribe`,
+  `whisper-1`). Paste the key on the Voice page; it's the same keychain entry the **OpenAI API** rewrite option uses.
+  If OpenAI can't be reached, a Mac falls back to Apple Speech for that dictation. Silent or near-silent clips are
+  never uploaded, and phrases models invent from silence ("Thank you.", "Thanks for watching!") are dropped.
+- **Built-in**: Apple Speech on macOS, Windows speech recognition on Windows, as before.
+
+Why not your Claude or ChatGPT plan? Anthropic offers no speech-to-text API, and its terms don't allow third-party apps
+to use Claude.ai logins. Codex's plan login has no public transcription endpoint either. The wake word always runs on
+the computer and never uploads audio.
 
 ### Connecting your AI account
 
@@ -159,7 +177,8 @@ Windows (`ci.yml`).
 src-tauri/src/
   lib.rs       shortcut state machine (hold / tap-for-hands-free / esc), pipeline, windows, tray, commands
   audio.rs     mic capture thread, live levels for the waves, 16 kHz resampling, silence gate, UI chimes
-  stt.rs       OS speech recognition: Apple Speech framework (macOS), Windows.Media.SpeechRecognition (Windows)
+  stt.rs       picks the speech engine; OS recognition: Apple Speech (macOS), Windows.Media.SpeechRecognition (Windows)
+  cloud_stt.rs OpenAI speech-to-text (gpt-transcribe): energy VAD trim, in-memory WAV, keywords, phantom-phrase filter
   llm.rs       rewrite prompt + styles, Claude Code / Codex / API providers, pre-warming, output cleanup
   cli.rs       finds the claude/codex CLIs (GUI apps get a bare PATH), login status, install/sign-in terminals
   paste.rs     clipboard + ⌘V/Ctrl+V, clipboard restore, macOS Accessibility check
@@ -185,5 +204,6 @@ ui/            overlay pill (canvas waves) and the settings / onboarding window.
 
 ## License
 
-Apache-2.0. Speech recognition by the operating system (Apple Speech on macOS, Windows speech recognition on Windows).
+Apache-2.0. Speech recognition by OpenAI (with your API key) or by the operating system (Apple Speech on macOS,
+Windows speech recognition on Windows).
 Murmur is an independent project and is not affiliated with Anthropic or OpenAI.

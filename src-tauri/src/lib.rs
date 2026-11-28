@@ -6,6 +6,7 @@
 
 pub mod audio;
 pub mod cli;
+pub mod cloud_stt;
 pub mod llm;
 pub mod paste;
 pub mod perms;
@@ -200,7 +201,13 @@ fn begin(app: &AppHandle, c: &Arc<Core>, hands_free: bool) {
     }
     // Warm up the rewriter now so its startup overlaps with speaking.
     let pending = llm::Pending::start(&s);
-    let live = stt::start_live(&s.language, &s.dictionary);
+    // OpenAI speech needs no live OS session (on Windows that would also send audio to Microsoft)
+    let live = if stt::uses_cloud(&s) {
+        cloud_stt::warm_up();
+        None
+    } else {
+        stt::start_live(&s.language, &s.dictionary)
+    };
     *c.session.lock() = Some(Session { rec, pending, live, started: Instant::now() });
 }
 
@@ -289,8 +296,8 @@ fn pipeline(app: &AppHandle, c: &Arc<Core>, sess: Session) {
     }
     emit_phase(app, "transcribing", None, None, false);
     let t_stt = Instant::now();
-    let heard = stt::transcribe(live, &audio, &s.language, &s.dictionary);
-    report("stt", serde_json::json!({"ms": t_stt.elapsed().as_millis() as u64, "ok": heard.is_ok()}));
+    let (heard, engine) = stt::dictate(live, &audio, &s);
+    report("stt", serde_json::json!({"ms": t_stt.elapsed().as_millis() as u64, "ok": heard.is_ok(), "engine": engine}));
     let raw = match heard {
         Ok(t) => llm::apply_voice_commands(&t),
         Err(e) => return fail(e, pending),
@@ -393,7 +400,7 @@ fn wake_loop(app: AppHandle, c: Arc<Core>) {
     let mut announced = false;
     loop {
         let s = c.settings.lock().clone();
-        if !s.wake_word || !stt::status().ready || !matches!(perms::check().mic, "granted" | "unknown") {
+        if !s.wake_word || !stt::system_status().ready || !matches!(perms::check().mic, "granted" | "unknown") {
             announced = false;
             std::thread::sleep(Duration::from_millis(700));
             continue;
@@ -756,6 +763,7 @@ fn get_state(c: CoreRef, app: AppHandle) -> serde_json::Value {
     serde_json::json!({
         "settings": *c.settings.lock(),
         "speech": stt::status(),
+        "systemSpeech": stt::system_status(),
         "history": *c.history.lock(),
         "platform": std::env::consts::OS,
         "vibrancy": *c.vibrancy.lock(),
@@ -772,6 +780,7 @@ fn save_settings(app: AppHandle, c: CoreRef, new: Settings) -> Result<(), String
         register_shortcut(&app, &c, &new.shortcut)?;
     }
     settings::save(&settings_path(), &new);
+    stt::configure(&new);
     *c.settings.lock() = new;
     Ok(())
 }
@@ -1001,6 +1010,7 @@ fn quit(app: AppHandle) {
 
 pub fn run() {
     let settings: Settings = settings::load(&settings_path());
+    stt::configure(&settings);
     let history: Vec<HistoryItem> = settings::load(&history_path());
     let state = Arc::new(Core {
         settings: Mutex::new(settings),

@@ -6,7 +6,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 
 // ───────── bridge (with a mock so the UI can be previewed in a browser) ─────────
 const mock = (() => {
-  const s = { shortcut: 'Alt+Space', provider: 'claude', style: 'clean', custom_prompt: '', language: 'en', claude_model: 'haiku', codex_model: '', anthropic_model: 'claude-haiku-5-5', openai_model: 'gpt-5-mini', dictionary: ['Kubernetes', 'Murmur'], restore_clipboard: true, sounds: true, onboarded: !location.hash.includes('onboard') };
+  const s = { shortcut: 'Alt+Space', provider: 'claude', style: 'clean', custom_prompt: '', language: 'en', claude_model: 'haiku', codex_model: '', anthropic_model: 'claude-haiku-5-5', openai_model: 'gpt-5-mini', speech_engine: 'openai', speech_model: 'gpt-transcribe', dictionary: ['Kubernetes', 'Murmur'], restore_clipboard: true, sounds: true, onboarded: !location.hash.includes('onboard') };
   const now = Date.now();
   const history = [
     { ts: now - 6e4, raw: 'um so can you send me the the report by friday no sorry thursday thanks', text: 'Can you send me the report by Thursday? Thanks!', provider: 'claude', seconds: 5.2, ms: 1180 },
@@ -15,7 +15,8 @@ const mock = (() => {
   ];
   return {
     get_state: () => ({ settings: s, history, platform: 'macos', vibrancy: false, defaultShortcut: 'Alt+Space', launchAtLogin: false, version: '0.4.0',
-      speech: { engine: 'apple', ready: true, can_request: false, on_device: true, detail: 'Apple speech recognition, on this Mac' } }),
+      speech: { engine: 'apple', ready: true, can_request: false, on_device: true, detail: 'Apple speech recognition, on this Mac' },
+      systemSpeech: { engine: 'apple', ready: true, can_request: false, on_device: true, detail: 'Apple speech recognition, on this Mac' } }),
     permissions: () => ({ mic: 'granted', speech: 'granted', accessibility: 'not_asked', all_granted: false, not_installed: false }),
     request_permission: () => ({ mic: 'granted', speech: 'granted', accessibility: 'granted', all_granted: true, not_installed: false }),
     verify_provider: async () => { await new Promise(r => setTimeout(r, 1200)); return { ok: true, ms: 1100 }; },
@@ -223,7 +224,7 @@ function renderDetail() {
 }
 async function refreshProviders(announce) {
   ps = await invoke('provider_status');
-  renderProviders(); renderStatus(); renderPerm();
+  renderProviders(); renderStatus(); renderPerm(); renderSpeech();
   autoVerify();
   if (announce) toast(provState(st.settings.provider) === 'ok' ? 'All set' : 'Not connected yet');
   return ps;
@@ -299,23 +300,52 @@ $('#autostart').onchange = async e => { try { await invoke('set_launch_at_login'
 $('#permBtn').onclick = () => invoke('open_privacy', { which: 'accessibility' });
 function renderPerm() { $('#permCard').classList.toggle('hidden', !isMac() || !ps || ps.accessibility); }
 
-// ───────── voice (the OS's built-in speech recognition) ─────────
+// ───────── voice (OpenAI speech-to-text, or the OS's built-in recognizer) ─────────
 const speechOk = () => !!st.speech?.ready;
+const cloudVoice = () => st.settings.speech_engine === 'openai';
 function renderSpeech() {
-  const sp = st.speech || {}, mac = isMac();
-  const name = mac ? 'Apple Speech' : 'Windows Speech';
-  const where = mac
-    ? (sp.on_device ? 'Runs on this Mac. Your audio stays here.' : "Uses Apple's speech recognition. On Macs without on-device support, audio is sent to Apple to be transcribed.")
-    : "Uses Microsoft's online speech recognition, built into Windows. Audio is sent to Microsoft while you dictate.";
-  const action = sp.ready ? '<span class="badge ok">Ready</span>'
-    : `<button class="btn primary" id="speechBtn">${mac ? (sp.can_request ? 'Allow Speech Recognition' : 'Open Privacy Settings') : 'Open Speech Settings'}</button>`;
-  $('#models').innerHTML = `<div class="card speech">
-    <div class="pd"><div class="grow"><b>${name}</b><p>${esc(sp.ready ? where : sp.detail || '')}</p></div>${action}</div>
-    <p class="muted" style="margin:12px 0 0">Built into ${mac ? 'macOS' : 'Windows'}, so there's nothing to download. Murmur's AI rewrite then fixes punctuation, filler words and mistakes.</p>
-    ${!mac && !sp.ready ? '<p class="muted" style="margin:8px 0 0">In Settings → Privacy &amp; security → Speech, turn on <b>Online speech recognition</b>, then come back.</p>' : ''}
-  </div>`;
+  const sys = st.systemSpeech || st.speech || {}, mac = isMac(), cloud = cloudVoice(), hasKey = !!ps?.openaiKey;
+  const osName = mac ? 'Apple Speech' : 'Windows Speech';
+  const seg = `<div class="seg" id="engineSeg"><button data-e="openai" class="${cloud ? 'on' : ''}">OpenAI</button><button data-e="system" class="${cloud ? '' : 'on'}">Built-in (${mac ? 'Apple' : 'Windows'})</button></div>`;
+  let body;
+  if (cloud) {
+    const model = st.settings.speech_model || 'gpt-transcribe';
+    body = `<div class="pd"><div class="grow"><b>OpenAI ${esc(model)}</b><p>${hasKey
+        ? 'Your recording is sent to OpenAI with your API key and transcribed there. Silence is trimmed first, and your Dictionary words are sent as spelling hints.'
+        : `Add an OpenAI API key to use it. Until then Murmur uses ${osName}.`}</p></div>${hasKey ? '<span class="badge ok">Ready</span>' : '<span class="badge no">Needs key</span>'}</div>
+      <div class="keyrow" style="margin-top:12px"><input id="voiceKey" class="field" type="password" placeholder="${hasKey ? 'Key saved in your keychain. Paste a new one to replace it' : 'sk-…  (platform.openai.com › API keys)'}"><button class="btn primary" id="voiceKeyBtn">Save key</button></div>
+      <div class="keyrow" style="margin-top:8px"><select id="speechModel" class="field">
+        ${[['gpt-transcribe', 'gpt-transcribe (recommended)'], ['gpt-4o-mini-transcribe', 'gpt-4o-mini-transcribe (cheapest)'], ['gpt-4o-transcribe', 'gpt-4o-transcribe'], ['whisper-1', 'whisper-1']]
+          .map(([v, l]) => `<option value="${v}"${v === model ? ' selected' : ''}>${l}</option>`).join('')}
+      </select></div>
+      <p class="muted" style="margin:10px 0 0">Uses the same key as the <b>OpenAI API</b> option in AI. Claude has no speech-to-text API, so Claude (or ChatGPT) rewrites the transcript after OpenAI hears it.${mac ? ' If OpenAI can’t be reached, Murmur falls back to Apple Speech.' : ''} The wake word always stays on this computer.</p>`;
+  } else {
+    const where = mac
+      ? (sys.on_device ? 'Runs on this Mac. Your audio stays here.' : "Uses Apple's speech recognition. On Macs without on-device support, audio is sent to Apple to be transcribed.")
+      : "Uses Microsoft's online speech recognition, built into Windows. Audio is sent to Microsoft while you dictate.";
+    const action = sys.ready ? '<span class="badge ok">Ready</span>'
+      : `<button class="btn primary" id="speechBtn">${mac ? (sys.can_request ? 'Allow Speech Recognition' : 'Open Privacy Settings') : 'Open Speech Settings'}</button>`;
+    body = `<div class="pd"><div class="grow"><b>${osName}</b><p>${esc(sys.ready ? where : sys.detail || '')}</p></div>${action}</div>
+      <p class="muted" style="margin:12px 0 0">Built into ${mac ? 'macOS' : 'Windows'}, so there's nothing to download. Murmur's AI rewrite then fixes punctuation, filler words and mistakes.</p>
+      ${!mac && !sys.ready ? '<p class="muted" style="margin:8px 0 0">In Settings → Privacy &amp; security → Speech, turn on <b>Online speech recognition</b>, then come back.</p>' : ''}`;
+  }
+  $('#models').innerHTML = `<div class="card speech" style="grid-column:1/-1">
+    <div class="card-h"><h3>Speech recognition</h3>${seg}</div>${body}</div>`;
+  $$('#engineSeg button').forEach(btn => btn.onclick = async () => {
+    if (await save({ speech_engine: btn.dataset.e })) await refreshSpeech();
+  });
   const b = $('#speechBtn'); if (b) b.onclick = requestSpeech;
+  const kb = $('#voiceKeyBtn'); if (kb) kb.onclick = async () => {
+    const v = $('#voiceKey').value.trim(); if (!v) return toast('Paste your OpenAI API key first');
+    try { await invoke('set_api_key', { name: 'openai_key', value: v }); toast('Key saved to keychain'); await refreshProviders(); await refreshSpeech(); } catch (e) { toast(String(e)); }
+  };
+  const sm = $('#speechModel'); if (sm) sm.onchange = e => save({ speech_model: e.target.value }).then(refreshSpeech);
   $('#language').value = st.settings.language;
+}
+async function refreshSpeech() {
+  const g = await invoke('get_state');
+  st.speech = g.speech; st.systemSpeech = g.systemSpeech;
+  renderSpeech(); renderStatus(); renderOb();
 }
 async function requestSpeech() {
   if (isMac() && !st.speech?.can_request) invoke('open_privacy', { which: 'speech' });

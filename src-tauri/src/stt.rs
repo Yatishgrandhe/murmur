@@ -1,6 +1,7 @@
-//! Speech-to-text with the recognizer built into the operating system, so there is nothing to
-//! download: Apple's Speech framework on macOS (on-device when the Mac supports it) and
-//! Microsoft's Windows speech recognition on Windows.
+//! Speech-to-text. With an OpenAI API key and the Voice engine set to "OpenAI", dictation goes to
+//! OpenAI's transcription API ([`crate::cloud_stt`]). Otherwise, and for the wake word, Murmur uses
+//! the recognizer built into the operating system: Apple's Speech framework on macOS (on-device
+//! when the Mac supports it) and Microsoft's Windows speech recognition on Windows.
 //!
 //! macOS works on recorded 16 kHz audio. Windows' recognizer only listens to the microphone
 //! itself, so a dictation there starts a live session ([`Live`]) next to Murmur's own recording
@@ -50,9 +51,59 @@ pub fn clean_transcript(s: &str) -> String {
     t
 }
 
-/// Readiness, cached once ready: on Windows checking it compiles a grammar (slow), and it is
-/// asked on every key press and by the wake-word loop.
+static CLOUD_ENGINE: parking_lot::Mutex<Option<String>> = parking_lot::Mutex::new(None);
+
+/// Remembers the chosen engine and model so [`status`] can report the active one.
+pub fn configure(s: &crate::settings::Settings) {
+    *CLOUD_ENGINE.lock() = (s.speech_engine == "openai").then(|| s.speech_model.clone());
+}
+
+/// The dictation goes to OpenAI: the engine is "openai" and an OpenAI API key is saved.
+pub fn uses_cloud(s: &crate::settings::Settings) -> bool {
+    s.speech_engine == "openai" && crate::cloud_stt::has_key()
+}
+
+/// Status of the engine dictation will actually use.
 pub fn status() -> Status {
+    let model = CLOUD_ENGINE.lock().clone();
+    if let Some(m) = model {
+        if crate::cloud_stt::has_key() {
+            let m = if m.trim().is_empty() { crate::cloud_stt::DEFAULT_MODEL.to_string() } else { m };
+            return Status { engine: "openai", ready: true, can_request: false, on_device: false, detail: format!("OpenAI {m}") };
+        }
+    }
+    system_status()
+}
+
+/// Transcribes a finished dictation with the chosen engine. When OpenAI fails for a passing
+/// reason (network, busy) on macOS, the recording is retried with Apple's recognizer.
+/// Returns the text and the engine that produced it.
+pub fn dictate(live: Option<Result<Live, String>>, audio: &[f32], s: &crate::settings::Settings) -> (Result<String, String>, &'static str) {
+    if uses_cloud(s) {
+        match crate::cloud_stt::transcribe(audio, &s.speech_model, &s.language, &s.dictionary) {
+            Ok(t) => {
+                if let Some(Ok(l)) = live {
+                    l.cancel();
+                }
+                return (Ok(t), "openai");
+            }
+            Err(e) if crate::cloud_stt::is_transient(&e) && cfg!(target_os = "macos") && system_status().ready => {
+                crate::report("stt_fallback", serde_json::json!(e));
+            }
+            Err(e) => {
+                if let Some(Ok(l)) = live {
+                    l.cancel();
+                }
+                return (Err(e), "openai");
+            }
+        }
+    }
+    (transcribe(live, audio, &s.language, &s.dictionary), "system")
+}
+
+/// Readiness of the OS recognizer, cached once ready: on Windows checking it compiles a grammar
+/// (slow), and it is asked on every key press and by the wake-word loop.
+pub fn system_status() -> Status {
     use std::sync::OnceLock;
     use std::time::{Duration, Instant};
     static CACHE: OnceLock<parking_lot::Mutex<Option<(Instant, Status)>>> = OnceLock::new();

@@ -23,6 +23,11 @@ pub struct Settings {
     pub codex_model: String,
     pub anthropic_model: String,
     pub openai_model: String,
+    /// Speech-to-text engine: "openai" (OpenAI API, needs the OpenAI API key; falls back to the
+    /// OS recognizer without one) or "system" (the OS's built-in recognizer).
+    pub speech_engine: String,
+    /// OpenAI transcription model used when `speech_engine` is "openai".
+    pub speech_model: String,
     /// Words / names the speech model and the rewriter must spell exactly.
     pub dictionary: Vec<String>,
     pub restore_clipboard: bool,
@@ -46,6 +51,8 @@ impl Default for Settings {
             codex_model: String::new(),
             anthropic_model: "claude-haiku-5-5".into(),
             openai_model: "gpt-5-mini".into(),
+            speech_engine: "openai".into(),
+            speech_model: "gpt-transcribe".into(),
             dictionary: vec![],
             restore_clipboard: false,
             sounds: true,
